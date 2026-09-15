@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "promptsentinel"
+version = "0.1.0"
+description = "Automated security testing for deployed LLM applications."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "virat" }]
+keywords = ["llm", "security", "prompt-injection", "red-teaming", "appsec"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Security",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+  "fastapi>=0.115",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.5",
+  "sqlalchemy[asyncio]>=2.0.35",
+  "aiosqlite>=0.20",
+  "httpx>=0.27",
+  "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=5.0",
+  "ruff>=0.7",
+  "mypy>=1.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/virat/promptsentinel"
+Issues = "https://github.com/virat/promptsentinel/issues"
+
+# Out-of-tree probe packages register themselves here; the engine discovers them
+# without any change to its own code. See docs/ARCHITECTURE.md.
+[project.entry-points."promptsentinel.probes"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/promptsentinel"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "S"]
+ignore = ["S101"]  # assert is the point of pytest
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]  # hardcoded fake secrets are fixtures, not leaks
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["promptsentinel"]
+mypy_path = "src"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q --strict-markers --strict-config"
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["promptsentinel"]
+branch = true
+# SQLAlchemy's asyncio support runs sync DB code inside greenlets. Without this,
+# coverage silently loses its tracer across every greenlet switch and reports
+# lines after an `await session.execute(...)` as unexecuted.
+concurrency = ["thread", "greenlet"]
