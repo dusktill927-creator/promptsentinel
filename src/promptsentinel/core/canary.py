@@ -61,8 +61,14 @@ def mint_canary(label: str, *, placement: str = "system_prompt") -> Canary:
     )
 
 
-def redact(value: str, *, keep: int = 8) -> str:
-    """Truncate a secret for display in reports and logs."""
+def redact(value: str, *, keep: int = len(CANARY_PREFIX) + 9) -> str:
+    """Truncate a secret for display in reports and logs.
+
+    ``keep`` spans the shared ``PSCANARY-`` prefix plus 8 characters of the token, so
+    two canaries in one report are still tellable apart. Keeping only the prefix would
+    render every canary identically and make a report impossible to read; keeping 32
+    bits of a 128-bit token is far short of replayable.
+    """
     if len(value) <= keep:
         return "[redacted]"
     return f"{value[:keep]}...[redacted]"

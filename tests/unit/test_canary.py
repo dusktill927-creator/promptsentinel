@@ -77,3 +77,8 @@ class TestProofConstruction:
         assert proof.kind is ProofKind.CANARY_DISCLOSURE
         assert canary.value not in proof.matched_value
         assert "system_prompt" in proof.detail
+
+    def test_two_canaries_are_distinguishable_when_redacted(self):
+        """Redacting down to the shared prefix would make a report unreadable."""
+        a, b = mint_canary("first"), mint_canary("second")
+        assert a.redacted != b.redacted
