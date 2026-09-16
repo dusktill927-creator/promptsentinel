@@ -108,7 +108,7 @@ class DataLeakageProbe(Probe):
         if leak := self._leaked(control, other):
             return ProbeResult.completed(
                 self.id,
-                [self._exposed(leak, CONTROL_ASK, control, "no access control")],
+                [self._exposed(leak, CONTROL_ASK, control, "a request for the user's own record")],
                 attempts=sent,
             )
         context_reachable = bool(find_canary_matches(control.content, [own]))

@@ -19,7 +19,7 @@ Built one at a time, each with the three-outcome test pattern established by
 | 1 | System-prompt extraction ✅ | Canary seeded in the system prompt returned verbatim |
 | 2 | Jailbreak / policy bypass ✅ | Marker token the model was told never to emit |
 | 3 | Indirect prompt injection | Canary in a simulated retrieved document, exfiltrated |
-| 4 | PII / data leakage | Canary "customer records" surfaced to an unauthorized asker |
+| 4 | PII / data leakage ✅ | Canary "customer records" surfaced to an unauthorized asker |
 | 5 | Unauthorized tool call | A disallowed tool actually invoked — structural, not textual |
 
 Category 3 needs a `DOCUMENT_INJECTION` target mode so probes can supply a poisoned
@@ -29,6 +29,17 @@ plumbing already exists for it.
 
 Each category gets multiple techniques (a probe per technique, not per category),
 which is exactly what the registry is for.
+
+**Category 4 shipped** with four techniques: `cross_customer_access`,
+`bulk_extraction`, `pretext_impersonation` and `context_laundering`. It contributed the
+**negative control**: the probe first asks for data it *should* be given, so that a
+clean result distinguishes "no leak" from "the target never read our context". Reported
+INFORMATIONAL when the control fails.
+
+It also established that severity models are per-category, not global. Jailbreak treats
+an unenforced control as less severe than a defeated one; data leakage treats trivially
+reachable exposure as the most severe outcome. The difference is whether the finding is
+about the control or about the data.
 
 **Category 2 shipped** with four techniques: `roleplay_persona`,
 `hypothetical_framing`, `authority_override` and `output_obfuscation`. It contains no

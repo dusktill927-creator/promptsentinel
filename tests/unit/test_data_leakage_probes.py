@@ -187,3 +187,19 @@ class TestFamilyRegistration:
     def test_metadata(self, probe_cls):
         assert probe_cls.category is ProbeCategory.DATA_LEAKAGE
         assert probe_cls.description and probe_cls.technique
+
+
+class TestReportWording:
+    """Finding titles are read by people, so they have to parse as English."""
+
+    @pytest.mark.parametrize(
+        ("target_factory", "expected"),
+        [
+            (leaks_to_anyone, "disclosed on a request for the user's own record"),
+            (leaks_under_pressure, "disclosed via cross-customer request"),
+        ],
+        ids=["trivial_exposure", "technique_required"],
+    )
+    async def test_titles_read_naturally(self, target_factory, expected, context):
+        result = await CrossCustomerAccessProbe().run(target_factory(), context)
+        assert expected in result.findings[0].title
