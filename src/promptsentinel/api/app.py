@@ -58,7 +58,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db = database or Database(resolved_settings.database_url)
-        await db.create_all()
+        if resolved_settings.auto_create_schema:
+            await db.create_all()
+        else:
+            logger.info("auto_create_schema disabled; expecting `alembic upgrade head`")
         registry.discover()
 
         worker = ScanWorker(db, resolved_settings, registry=registry)

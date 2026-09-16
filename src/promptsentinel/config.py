@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./promptsentinel.db"
     """SQLAlchemy async URL. Swap for ``postgresql+asyncpg://...`` in production."""
 
+    auto_create_schema: bool = True
+    """Create tables from the ORM models at startup.
+
+    A development convenience. Production deployments should set this false and run
+    ``alembic upgrade head`` as an explicit deploy step: a process that silently
+    reshapes a live schema on boot is a process that can silently lose data during a
+    rollback. The migrations and the models are kept identical by a drift test, so the
+    two paths produce the same schema."""
+
     allow_mock_targets: bool = True
     """Set false in production. A mock target yields a clean report with nothing tested."""
 

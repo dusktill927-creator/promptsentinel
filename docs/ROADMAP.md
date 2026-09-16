@@ -95,7 +95,9 @@ It also produced two pieces of shared machinery the later categories inherit:
 
 ## Phase 2 — Operability
 
-- **Alembic migrations** — before any external user's data depends on the schema.
+- **Alembic migrations** ✅ — with a schema-drift test that diffs the migrated schema
+  against the ORM metadata, so a model change without a migration fails CI instead of a
+  deploy. `auto_create_schema` stays true for development and false in production.
 - **CLI** (`promptsentinel scan --target ... --attest`) over the same engine, with the
   authorization gate enforced identically.
 - **API authentication** — the API currently has none and must not be exposed to an

@@ -204,8 +204,12 @@ than no tool.
 - **SQLite foreign keys are enabled per connection** via a `PRAGMA` on connect. SQLite
   ignores `ON DELETE CASCADE` unless asked, so without this the cascade silently does
   nothing locally and works in production — the worst kind of environment difference.
-- **Schema is created with `create_all`.** Adequate for V1 and tests; Alembic lands
-  before anyone else's data depends on it.
+- **Two paths to a schema, kept identical by a test.** Development creates tables from
+  the ORM models; production runs `alembic upgrade head` with `auto_create_schema`
+  false. `tests/integration/test_schema_migrations.py` runs every migration against an
+  empty database and diffs the result against `Base.metadata`, so the two cannot drift.
+  Migrations also use `render_as_batch` on SQLite, because SQLite cannot `ALTER` most
+  things in place and a column change would otherwise work on Postgres and fail locally.
 
 ## Testing notes
 

@@ -438,6 +438,26 @@ mypy                    # strict mode
 
 CI runs all four on Python 3.11, 3.12 and 3.13.
 
+### Database migrations
+
+Development creates tables from the ORM models on startup. **Production should not:**
+
+```bash
+PROMPTSENTINEL_AUTO_CREATE_SCHEMA=false
+alembic upgrade head
+```
+
+A process that silently reshapes a live schema on boot is one that can silently lose
+data during a rollback.
+
+The two paths are kept identical by a drift test: it runs every migration against an
+empty database and diffs the result against `Base.metadata`. Change a model without
+writing a migration and CI fails — rather than the deploy.
+
+```bash
+alembic revision --autogenerate -m "add x"   # after changing a model
+```
+
 ---
 
 ## Scope and limits
@@ -452,7 +472,6 @@ control. See [SECURITY.md](SECURITY.md).
 
 - The job queue is in-process. Queued scans are lost on restart. The `JobQueue`
   protocol exists so Redis/ARQ drops in later.
-- Schema is created with `create_all`; Alembic migrations land before v1.0.
 - No authentication on the API itself. Do not expose it to a network you do not trust.
 - Heuristic detection is rule-based by design. Confirmation is canary-based, which is
   what keeps false positives out of the `confirmed` tier.
