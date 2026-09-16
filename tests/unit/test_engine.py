@@ -72,7 +72,7 @@ class ToolProbe(Probe):
 
 
 class ChatOnlyTarget(MockTarget):
-    capabilities = frozenset({TargetCapability.CHAT})
+    default_capabilities = frozenset({TargetCapability.CHAT})
 
 
 @pytest.fixture

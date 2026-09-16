@@ -11,6 +11,7 @@ import httpx
 from promptsentinel.core.errors import TargetError
 from promptsentinel.targets.base import (
     ChatMessage,
+    Document,
     Target,
     TargetCapability,
     TargetResponse,
@@ -29,14 +30,24 @@ class OpenAICompatibleTarget(Target):
     """
 
     kind: ClassVar[str] = "openai_compatible"
-    capabilities: ClassVar[frozenset[TargetCapability]] = frozenset(
+    default_capabilities: ClassVar[frozenset[TargetCapability]] = frozenset(
         {
             TargetCapability.CHAT,
             TargetCapability.SYSTEM_PROMPT_CONTROL,
             TargetCapability.TOOL_CALLING,
-            TargetCapability.DOCUMENT_INJECTION,
         }
     )
+
+    @property
+    def capabilities(self) -> frozenset[TargetCapability]:
+        """DOCUMENT_INJECTION only when the operator described their retrieval setup.
+
+        Without that description we would be guessing where retrieved text lands, and a
+        probe that guesses wrong reports a clean result for an untested attack path.
+        """
+        if self._spec.retrieval is None:
+            return self.default_capabilities
+        return self.default_capabilities | {TargetCapability.DOCUMENT_INJECTION}
 
     def __init__(
         self, spec: OpenAICompatibleTargetSpec, *, client: httpx.AsyncClient | None = None
@@ -60,10 +71,12 @@ class OpenAICompatibleTarget(Target):
         messages: Sequence[ChatMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
+        documents: Sequence[Document] | None = None,
     ) -> TargetResponse:
+        rendered = self._render_documents(messages, documents)
         payload: dict[str, Any] = {
             "model": self._spec.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [{"role": m.role, "content": m.content} for m in rendered],
         }
         if tools:
             payload["tools"] = [
@@ -99,6 +112,38 @@ class OpenAICompatibleTarget(Target):
             raise TargetError(f"target returned non-JSON response: {exc}") from exc
 
         return self._parse(body, latency_ms)
+
+    def _render_documents(
+        self, messages: Sequence[ChatMessage], documents: Sequence[Document] | None
+    ) -> list[ChatMessage]:
+        """Insert retrieved context where this application puts it.
+
+        The context message goes immediately before the final user turn, which is where
+        virtually every RAG implementation places it, and is templated from the
+        operator's own configuration rather than from our assumptions.
+        """
+        rendered = list(messages)
+        if not documents or self._spec.retrieval is None:
+            return rendered
+
+        config = self._spec.retrieval
+        body = "\n\n".join(
+            config.document_template.format(
+                index=index, title=doc.title, source=doc.source, content=doc.content
+            )
+            for index, doc in enumerate(documents, start=1)
+        )
+        context = ChatMessage(
+            role=config.role, content=config.context_template.format(documents=body)
+        )
+
+        insert_at = len(rendered)
+        for position in range(len(rendered) - 1, -1, -1):
+            if rendered[position].role == "user":
+                insert_at = position
+                break
+        rendered.insert(insert_at, context)
+        return rendered
 
     def _parse(self, body: dict[str, Any], latency_ms: int) -> TargetResponse:
         choices = body.get("choices") or []

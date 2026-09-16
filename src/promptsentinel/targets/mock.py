@@ -19,6 +19,7 @@ from typing import ClassVar
 
 from promptsentinel.targets.base import (
     ChatMessage,
+    Document,
     Target,
     TargetCapability,
     TargetResponse,
@@ -32,14 +33,20 @@ class MockTarget(Target):
     """Rule-driven scripted target."""
 
     kind: ClassVar[str] = "mock"
-    capabilities: ClassVar[frozenset[TargetCapability]] = frozenset(
+    default_capabilities: ClassVar[frozenset[TargetCapability]] = frozenset(
         {
             TargetCapability.CHAT,
             TargetCapability.SYSTEM_PROMPT_CONTROL,
             TargetCapability.TOOL_CALLING,
-            TargetCapability.DOCUMENT_INJECTION,
         }
     )
+
+    @property
+    def capabilities(self) -> frozenset[TargetCapability]:
+        """Mirrors the real adapters: a RAG target only when retrieval is configured."""
+        if self._spec.retrieval is None:
+            return self.default_capabilities
+        return self.default_capabilities | {TargetCapability.DOCUMENT_INJECTION}
 
     def __init__(self, spec: MockTargetSpec):
         self._spec = spec
@@ -47,7 +54,11 @@ class MockTarget(Target):
         self._leak_pattern = (
             re.compile(spec.leak_system_prompt_on, re.I) if spec.leak_system_prompt_on else None
         )
+        self._emit_pattern = (
+            re.compile(spec.document_emit_pattern) if spec.document_emit_pattern else None
+        )
         self.transcript: list[tuple[list[ChatMessage], TargetResponse]] = []
+        self.documents_seen: list[list[Document]] = []
 
     @property
     def system_prompt(self) -> str | None:
@@ -61,13 +72,25 @@ class MockTarget(Target):
         messages: Sequence[ChatMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
+        documents: Sequence[Document] | None = None,
     ) -> TargetResponse:
         user_text = _last_user_message(messages)
-        response = self._respond(user_text, messages)
+        response = self._respond(user_text, messages, documents or ())
         self.transcript.append((list(messages), response))
+        self.documents_seen.append(list(documents or ()))
         return response
 
-    def _respond(self, user_text: str, messages: Sequence[ChatMessage]) -> TargetResponse:
+    def _respond(
+        self,
+        user_text: str,
+        messages: Sequence[ChatMessage],
+        documents: Sequence[Document],
+    ) -> TargetResponse:
+        # Document-driven behaviour comes first: a RAG target's reply is shaped by what
+        # it retrieved, whatever static rules also match.
+        if document_reply := self._reply_from_documents(documents):
+            return TargetResponse(content=document_reply, finish_reason="stop")
+
         for pattern, rule in self._rules:
             if pattern.search(user_text):
                 return TargetResponse(
@@ -87,6 +110,31 @@ class MockTarget(Target):
             )
 
         return TargetResponse(content=self._spec.default_response, finish_reason="stop")
+
+    def _reply_from_documents(self, documents: Sequence[Document]) -> str | None:
+        """Simulate a model acting on retrieved content.
+
+        ``quote_documents`` stands for a summariser that repeats what it read;
+        ``document_emit_pattern`` stands for a model that acts on it. The same knob
+        models correct behaviour and a vulnerability depending on which part of the
+        document the pattern selects -- the document's own data, or a directive that an
+        attacker planted in it.
+        """
+        if not documents:
+            return None
+        text = _document_text(documents)
+        if self._spec.quote_documents:
+            return f"Here is what I found:\n\n{text}"
+        if self._emit_pattern is None:
+            return None
+        matches = [
+            m.group(1) if m.groups() else m.group(0) for m in self._emit_pattern.finditer(text)
+        ]
+        return " ".join(matches) if matches else None
+
+
+def _document_text(documents: Sequence[Document]) -> str:
+    return "\n\n".join(f"{d.title}\n{d.content}" for d in documents)
 
 
 def _with_revealed_lines(rule: MockRule, messages: Sequence[ChatMessage]) -> str:

@@ -102,6 +102,26 @@ class TargetResponse(BaseModel):
         return {call.name for call in self.tool_calls}
 
 
+class Document(BaseModel):
+    """A simulated retrieved document.
+
+    Probes hand these to a target rather than formatting them into a message
+    themselves, because only the adapter knows how a given application presents
+    retrieved context -- as a system block, a user turn, or its own message role.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    title: str
+    content: str
+    source: str = Field(
+        default="kb://internal",
+        description="Where the document claims to come from. Appears in the rendered "
+        "context, because provenance is often what an injected instruction impersonates.",
+    )
+
+
 class Target(abc.ABC):
     """A system under test.
 
@@ -112,7 +132,20 @@ class Target(abc.ABC):
     kind: ClassVar[str]
     """Stable identifier used in scan requests, e.g. ``openai_compatible``."""
 
-    capabilities: ClassVar[frozenset[TargetCapability]] = frozenset({TargetCapability.CHAT})
+    default_capabilities: ClassVar[frozenset[TargetCapability]] = frozenset({TargetCapability.CHAT})
+    """What this adapter can do before configuration is taken into account."""
+
+    @property
+    def capabilities(self) -> frozenset[TargetCapability]:
+        """What *this configured target* can do.
+
+        A property rather than a class attribute because capability depends on how the
+        target was set up, not only on its type: the same OpenAI-compatible adapter is
+        a RAG target when the operator describes their retrieval context and a plain
+        chat target when they do not. Reporting a capability the deployment does not
+        have would let an indirect-injection probe claim a clean result it never earned.
+        """
+        return self.default_capabilities
 
     @abc.abstractmethod
     async def send(
@@ -120,8 +153,13 @@ class Target(abc.ABC):
         messages: Sequence[ChatMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
+        documents: Sequence[Document] | None = None,
     ) -> TargetResponse:
         """Send a conversation and return the target's reply.
+
+        ``documents`` simulates retrieval: the adapter renders them the way the
+        application presents retrieved context, so a probe can plant content without
+        knowing the application's prompt format.
 
         Raises:
             TargetError: on transport failure or an unparseable response. Probes let

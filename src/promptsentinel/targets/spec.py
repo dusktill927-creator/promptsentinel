@@ -47,6 +47,15 @@ class OpenAICompatibleTargetSpec(BaseModel):
     )
     timeout_s: float = Field(default=30.0, gt=0, le=300)
 
+    retrieval: RetrievalConfig | None = Field(
+        default=None,
+        description=(
+            "Describe how your application injects retrieved documents. Supplying this "
+            "marks the target as a RAG deployment and enables indirect-injection "
+            "probes; omitting it makes them report SKIPPED rather than a clean pass."
+        ),
+    )
+
     @field_validator("base_url")
     @classmethod
     def _validate_url(cls, value: str) -> str:
@@ -54,6 +63,29 @@ class OpenAICompatibleTargetSpec(BaseModel):
         if not normalized.startswith(("http://", "https://")):
             raise ValueError("base_url must be an http:// or https:// URL")
         return normalized
+
+
+class RetrievalConfig(BaseModel):
+    """How an application renders retrieved context into its prompt.
+
+    Probes plant document *content*; this says how that content reaches the model, so
+    the injected text sits exactly where the application's own retriever would put it.
+    Testing an injection in the wrong position tests the wrong application.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    role: Literal["system", "user"] = Field(
+        default="user", description="Message role carrying retrieved context."
+    )
+    document_template: str = Field(
+        default="[{index}] {title} (source: {source})\n{content}",
+        description="Per-document rendering. Placeholders: index, title, source, content.",
+    )
+    context_template: str = Field(
+        default="Retrieved context:\n\n{documents}\n\nUse the context above to answer.",
+        description="Wrapper around the rendered documents. Placeholder: documents.",
+    )
 
 
 class MockToolCall(BaseModel):
@@ -106,6 +138,22 @@ class MockTargetSpec(BaseModel):
             "Regex that makes the mock disclose its system prompt -- used to simulate "
             "a vulnerable application."
         ),
+    )
+    retrieval: RetrievalConfig | None = Field(
+        default=None, description="Present to make the mock behave as a RAG target."
+    )
+    document_emit_pattern: str | None = Field(
+        default=None,
+        description=(
+            "Regex applied to retrieved document text; every match is emitted in the "
+            "reply. Simulates a model acting on document content -- correctly when the "
+            "pattern selects the document's own data, as a vulnerability when it "
+            "selects an injected directive."
+        ),
+    )
+    quote_documents: bool = Field(
+        default=False,
+        description="Reply with the retrieved documents verbatim, as a summariser would.",
     )
     leak_encoding: Literal["base64", "reversed"] | None = Field(
         default=None,
