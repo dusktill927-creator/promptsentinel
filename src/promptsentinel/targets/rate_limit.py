@@ -21,6 +21,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from promptsentinel.core.budget import extend_deadline
 from promptsentinel.targets.base import (
     ChatMessage,
     Document,
@@ -46,11 +47,23 @@ class RateLimit(BaseModel):
 
 
 class TokenBucket:
-    """Async token bucket.
+    """Paces requests by assigning each caller a send slot.
 
-    ``clock`` and ``sleep`` are injectable so the pacing logic can be tested exactly,
-    at no wall-clock cost. A rate limiter verified with real sleeps is either a slow
-    test suite or a flaky one.
+    Rather than holding tokens and sleeping until one appears, each caller takes the
+    next free slot on a schedule and waits for it. Two things fall out of that, both of
+    which the sleep-on-a-token version got wrong:
+
+    * **The wait is known before it starts.** That lets a caller credit the wait to its
+      deadline *up front*. Crediting afterwards is useless -- an ``asyncio.timeout``
+      fires during the sleep, before the credit is ever applied, which is exactly the
+      bug this replaced.
+    * **The lock is never held across a wait.** Callers take a slot in a fast critical
+      section and then sleep independently, so nobody queues behind anyone else's sleep
+      and there is no thundering herd, because every caller has a different slot.
+
+    ``clock`` and ``sleep`` are injectable so the pacing is tested exactly, at no
+    wall-clock cost. A rate limiter verified with real sleeps is either a slow test
+    suite or a flaky one.
     """
 
     def __init__(
@@ -60,33 +73,32 @@ class TokenBucket:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] | None = None,
     ):
-        self._rate = limit.requests_per_second
-        self._burst = float(limit.burst)
-        self._tokens = float(limit.burst)
+        self._interval = 1.0 / limit.requests_per_second
+        self._burst = limit.burst
         self._clock = clock
         self._sleep = sleep or asyncio.sleep
-        self._updated = clock()
         self._lock = asyncio.Lock()
+        # Start far enough in the past that the first `burst` callers go straight
+        # through, and an idle period restores the same allowance.
+        self._next_free = clock() - self._burst * self._interval
 
     async def acquire(self) -> None:
-        """Wait until one request may be sent.
-
-        The lock is deliberately held across the wait. Releasing it first would let
-        every queued caller wake at once and fire together -- the exact burst this
-        exists to prevent -- so waiters are served one at a time, in order.
-        """
+        """Wait until this caller may send."""
         async with self._lock:
-            self._refill()
-            if self._tokens < 1.0:
-                await self._sleep((1.0 - self._tokens) / self._rate)
-                self._refill()
-            self._tokens = max(0.0, self._tokens - 1.0)
+            now = self._clock()
+            # Let the schedule lag behind now by at most one burst, so idling banks the
+            # burst allowance again but never more than that.
+            floor = now - (self._burst - 1) * self._interval
+            slot = max(now, self._next_free)  # floor is never above now
+            self._next_free = max(self._next_free, floor) + self._interval
+            wait = slot - now
 
-    def _refill(self) -> None:
-        now = self._clock()
-        elapsed = max(0.0, now - self._updated)
-        self._updated = now
-        self._tokens = min(self._burst, self._tokens + elapsed * self._rate)
+        if wait > 0:
+            # Credited before the wait, not after: the caller is about to be blocked by
+            # us rather than by the target, and a deadline that expires mid-sleep never
+            # gets to hear about a credit applied afterwards.
+            extend_deadline(wait)
+            await self._sleep(wait)
 
 
 class RateLimitedTarget(Target):

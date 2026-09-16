@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 
 from promptsentinel.core.authorization import Authorization
+from promptsentinel.core.budget import track_deadline
 from promptsentinel.core.canary import Canary
 from promptsentinel.core.errors import AuthorizationError, PromptSentinelError
 from promptsentinel.core.models import ProbeResult
@@ -110,8 +111,13 @@ class ScanEngine:
         async with self._semaphore:
             started = time.perf_counter()
             try:
-                async with asyncio.timeout(self._probe_timeout_s):
-                    result = await probe.run(target, context)
+                async with asyncio.timeout(self._probe_timeout_s) as deadline:
+                    # The budget measures the target's responsiveness. Time the probe
+                    # spends queued behind our own rate limiter is given back, so a
+                    # conservatively paced scan does not report timeouts that never
+                    # happened.
+                    with track_deadline(deadline):
+                        result = await probe.run(target, context)
             except TimeoutError:
                 logger.warning("scan=%s probe=%s timed out", plan.scan_id, probe.id)
                 return ProbeResult.timed_out(probe.id, self._probe_timeout_s)

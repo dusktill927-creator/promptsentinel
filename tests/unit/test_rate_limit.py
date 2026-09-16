@@ -7,8 +7,11 @@ a flaky one.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from promptsentinel.core.budget import extend_deadline, track_deadline
 from promptsentinel.targets.base import ChatMessage, TargetCapability, ToolDefinition
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.mock import MockTarget
@@ -183,3 +186,112 @@ class TestFactoryWiring:
         )
         target = build_target(spec, allow_mock=False, rate_limit=RateLimit(requests_per_second=1))
         assert target.supports(TargetCapability.DOCUMENT_INJECTION)
+
+
+class TestDeadlineCrediting:
+    """Time spent waiting on us is not time the target had.
+
+    Found by a real scan: paced for a free-tier API at 0.2 requests/second with the
+    default concurrency, three probes in four were reported TIMED_OUT purely because
+    they were queued behind the shared limiter. The tool was blaming the target for its
+    own queueing.
+    """
+
+    async def test_extend_deadline_pushes_the_active_timeout_out(self):
+        async with asyncio.timeout(10.0) as deadline:
+            with track_deadline(deadline):
+                await asyncio.sleep(0)
+                before = deadline.when()
+                extend_deadline(5.0)
+                after = deadline.when()
+        assert after is not None and before is not None
+        assert after == pytest.approx(before + 5.0)
+
+    async def test_extending_outside_a_deadline_is_harmless(self):
+        """The limiter behaves identically when nothing is tracking a budget."""
+        extend_deadline(5.0)
+
+    async def test_a_zero_wait_changes_nothing(self):
+        async with asyncio.timeout(10.0) as deadline:
+            with track_deadline(deadline):
+                await asyncio.sleep(0)
+                before = deadline.when()
+                extend_deadline(0.0)
+                assert deadline.when() == before
+
+    async def test_the_deadline_is_restored_after_the_block(self):
+        async with asyncio.timeout(10.0) as outer:
+            with track_deadline(outer):
+                await asyncio.sleep(0)
+            before = outer.when()
+            extend_deadline(5.0)  # no longer tracked
+            assert outer.when() == before
+
+    async def test_queued_probes_are_not_reported_as_timing_out(self):
+        """The end-to-end property, with real sleeps kept small.
+
+        Four probes share a bucket slow enough that the last one waits far longer than
+        its own budget. Before the fix it was reported TIMED_OUT; it must now complete.
+        """
+        from promptsentinel.core.authorization import REQUIRED_ATTESTATION, Authorization
+        from promptsentinel.core.models import ProbeCategory, ProbeResult, ProbeStatus
+        from promptsentinel.engine.runner import ScanEngine, ScanPlan
+        from promptsentinel.probes.base import Probe, ProbeContext
+
+        class Chatty(Probe):
+            id = "test.chatty"
+            name = "Chatty"
+            category = ProbeCategory.DIAGNOSTIC
+            description = "Sends several requests."
+
+            async def run(self, target, context: ProbeContext) -> ProbeResult:
+                for _ in range(3):
+                    await target.send(ASK)
+                return ProbeResult.completed(self.id, [])
+
+        target = RateLimitedTarget(
+            MockTarget(MockTargetSpec()), RateLimit(requests_per_second=10.0, burst=1)
+        )
+        engine = ScanEngine(max_concurrent_probes=4, probe_timeout_s=0.4)
+        plan = ScanPlan(
+            scan_id="s1",
+            authorization=Authorization(
+                confirmed=True, attested_by="t", statement=REQUIRED_ATTESTATION
+            ),
+            probes=[Chatty, Chatty, Chatty, Chatty],
+        )
+
+        outcome = await engine.run(plan, target)
+        assert all(r.status is ProbeStatus.COMPLETED for r in outcome.results)
+        assert target.requests_made == 12
+
+    async def test_a_genuinely_slow_target_still_times_out(self):
+        """The budget must still do its job: crediting our waits is not disabling it."""
+        from promptsentinel.core.authorization import REQUIRED_ATTESTATION, Authorization
+        from promptsentinel.core.models import ProbeCategory, ProbeResult, ProbeStatus
+        from promptsentinel.engine.runner import ScanEngine, ScanPlan
+        from promptsentinel.probes.base import Probe, ProbeContext
+
+        class Slow(Probe):
+            id = "test.slow_target"
+            name = "Slow"
+            category = ProbeCategory.DIAGNOSTIC
+            description = "Waits on the target, not on us."
+
+            async def run(self, target, context: ProbeContext) -> ProbeResult:
+                await asyncio.sleep(5)
+                return ProbeResult.completed(self.id, [])
+
+        target = RateLimitedTarget(
+            MockTarget(MockTargetSpec()), RateLimit(requests_per_second=1000.0)
+        )
+        engine = ScanEngine(max_concurrent_probes=1, probe_timeout_s=0.2)
+        plan = ScanPlan(
+            scan_id="s1",
+            authorization=Authorization(
+                confirmed=True, attested_by="t", statement=REQUIRED_ATTESTATION
+            ),
+            probes=[Slow],
+        )
+        outcome = await engine.run(plan, target)
+        assert outcome.results[0].status is ProbeStatus.TIMED_OUT
