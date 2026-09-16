@@ -25,7 +25,7 @@ from promptsentinel.targets.base import (
     ToolCall,
     ToolSpec,
 )
-from promptsentinel.targets.spec import MockTargetSpec
+from promptsentinel.targets.spec import MockRule, MockTargetSpec
 
 
 class MockTarget(Target):
@@ -71,7 +71,7 @@ class MockTarget(Target):
         for pattern, rule in self._rules:
             if pattern.search(user_text):
                 return TargetResponse(
-                    content=rule.response,
+                    content=_with_revealed_lines(rule, messages),
                     tool_calls=[
                         ToolCall(name=c.name, arguments=dict(c.arguments)) for c in rule.tool_calls
                     ],
@@ -87,6 +87,16 @@ class MockTarget(Target):
             )
 
         return TargetResponse(content=self._spec.default_response, finish_reason="stop")
+
+
+def _with_revealed_lines(rule: MockRule, messages: Sequence[ChatMessage]) -> str:
+    """Append the system-message lines a rule is configured to disclose."""
+    if rule.reveal_system_lines is None:
+        return rule.response
+    system = _effective_system_prompt(messages) or ""
+    selector = re.compile(rule.reveal_system_lines, re.I)
+    revealed = [line for line in system.splitlines() if selector.search(line)]
+    return "\n".join([rule.response, *revealed]).strip()
 
 
 def _encode(text: str, encoding: str | None) -> str:

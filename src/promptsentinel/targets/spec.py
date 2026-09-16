@@ -73,6 +73,14 @@ class MockRule(BaseModel):
     pattern: str = Field(description="Python regex matched against the last user message.")
     response: str = ""
     tool_calls: list[MockToolCall] = Field(default_factory=list)
+    reveal_system_lines: str | None = Field(
+        default=None,
+        description=(
+            "Regex selecting lines of the system message to append to the response. "
+            "Lets a mock disclose one seeded record while withholding another, which "
+            "is what simulates a working -- or broken -- access control."
+        ),
+    )
 
 
 class MockTargetSpec(BaseModel):
