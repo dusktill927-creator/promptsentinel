@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     allow_mock_targets: bool = True
     """Set false in production. A mock target yields a clean report with nothing tested."""
 
+    redis_url: str | None = None
+    """Redis connection URL. Setting it switches the deployment to distributed mode.
+
+    One switch rather than separate queue and secret-store settings, because the two
+    must agree: a Redis queue with a process-local secret store would fail every scan
+    at credential lookup. Choosing them together makes that combination unrepresentable
+    rather than merely discouraged."""
+
     max_concurrent_scans: int = 2
     """In-process worker slots. Bounds load on this machine, not on the target."""
 
@@ -103,6 +111,11 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
+
+    @property
+    def distributed(self) -> bool:
+        """True when scans run in a separate worker process."""
+        return bool(self.redis_url)
 
     @property
     def rate_limit(self) -> RateLimit:

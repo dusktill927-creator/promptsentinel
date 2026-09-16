@@ -20,10 +20,12 @@ from promptsentinel.api.security import require_api_key
 from promptsentinel.config import Settings, get_settings
 from promptsentinel.core.errors import AuthorizationError, ConfigurationError, TargetError
 from promptsentinel.db.session import Database
-from promptsentinel.jobs.queue import InProcessJobQueue
+from promptsentinel.jobs.queue import InProcessJobQueue, JobQueue
+from promptsentinel.jobs.redis_queue import RedisJobQueue
 from promptsentinel.jobs.worker import ScanWorker
 from promptsentinel.probes.registry import REGISTRY, ProbeRegistry
 from promptsentinel.secrets import InMemorySecretStore, SecretStore
+from promptsentinel.secrets.redis_store import RedisSecretStore
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +74,7 @@ def create_app(
             logger.info("auto_create_schema disabled; expecting `alembic upgrade head`")
         registry.discover()
 
-        store = secret_store or InMemorySecretStore()
-        worker = ScanWorker(db, resolved_settings, store, registry=registry)
-        queue = InProcessJobQueue(
-            worker.execute, max_concurrent=resolved_settings.max_concurrent_scans
-        )
+        store, queue = _build_backends(resolved_settings, db, registry, secret_store)
 
         _check_authentication(resolved_settings)
 
@@ -116,6 +114,32 @@ def create_app(
     app.include_router(probes.router, dependencies=[Depends(require_api_key)])
     app.include_router(scans.router, dependencies=[Depends(require_api_key)])
     return app
+
+
+def _build_backends(
+    settings: Settings,
+    database: Database,
+    registry: ProbeRegistry,
+    override: SecretStore | None,
+) -> tuple[SecretStore, JobQueue]:
+    """Pick the queue and the secret store together.
+
+    They are chosen from one setting because they have to agree: a Redis queue with a
+    process-local secret store would fail every scan at credential lookup, and a
+    misconfiguration that only shows up once a real scan runs is the expensive kind.
+    Setting ``redis_url`` moves both.
+    """
+    if settings.distributed:
+        assert settings.redis_url is not None
+        store: SecretStore = override or RedisSecretStore(settings.redis_url)
+        logger.info("distributed mode: scans run in a separate worker process")
+        return store, RedisJobQueue(settings.redis_url)
+
+    store = override or InMemorySecretStore()
+    scan_worker = ScanWorker(database, settings, store, registry=registry)
+    return store, InProcessJobQueue(
+        scan_worker.execute, max_concurrent=settings.max_concurrent_scans
+    )
 
 
 def _check_authentication(settings: Settings) -> None:

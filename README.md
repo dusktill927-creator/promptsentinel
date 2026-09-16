@@ -284,6 +284,45 @@ webhook carries the scan ID, status and finding counts — never evidence.
 
 ---
 
+## Running distributed
+
+By default the API runs scans in its own process: simple, and it loses queued work on
+restart. Set `PROMPTSENTINEL_REDIS_URL` and scans move to separate worker processes:
+
+```bash
+PROMPTSENTINEL_REDIS_URL=redis://localhost:6379 uvicorn promptsentinel.api.app:app
+PROMPTSENTINEL_REDIS_URL=redis://localhost:6379 promptsentinel worker   # run as many as you need
+```
+
+One setting moves both the queue and the credential store, because they have to agree —
+a Redis queue with a process-local secret store would fail every scan at credential
+lookup. Choosing them together makes that combination unrepresentable rather than merely
+discouraged.
+
+### Credentials never enter the queue
+
+The in-process queue could hand the worker a live target spec through memory. A
+distributed one cannot, and putting credentials in the queue message would spread them
+across every broker, replica and backup that message touches — and queue payloads are
+exactly what people dump when debugging.
+
+So **the queue message is just a scan ID**. Credentials travel through a separate
+short-lived store:
+
+```
+job queued          : 1
+credential staged   : 1          TTL 1800s
+secret in queue msg : 0          ← the broker never sees it
+...worker runs in another process...
+credential after    : 0          ← deleted as soon as the scan ends
+```
+
+The store expires entries on its own, so a worker that dies leaves nothing behind; the
+worker deletes them in a `finally` block either way; and the API deletes them if
+enqueuing fails, so nothing is stranded waiting out a TTL. A scan that outlives its
+credential fails with a message saying so, rather than reporting a clean run against a
+target it never reached.
+
 ## Architecture
 
 ```
@@ -627,8 +666,6 @@ to be careful.
 
 **Known V1 limitations**, stated plainly:
 
-- The job queue is in-process. Queued scans are lost on restart. The `JobQueue`
-  protocol exists so Redis/ARQ drops in later.
 - No authentication on the API itself. Do not expose it to a network you do not trust.
 - The CLI runs scans in-process and does not persist them; use the API for stored
   reports and webhooks.

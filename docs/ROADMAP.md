@@ -123,8 +123,15 @@ It also produced two pieces of shared machinery the later categories inherit:
 
 ## Phase 3 — Product surface
 
-- Distributed job queue (ARQ/Redis) behind the existing `JobQueue` protocol, with a
-  secrets backend for target credentials.
+- Distributed job queue ✅ (arq/Redis) behind the existing `JobQueue` protocol, with a
+  credential store to go with it. Nothing above the queue changed -- the 202 contract,
+  polling and webhooks were all designed for this, which was the point of writing the
+  protocol before there was a second implementation.
+
+  The interesting half was credentials. The queue message is now only a scan ID in both
+  modes, and target specs travel through a `SecretStore` with a TTL. `redis_url` selects
+  queue and store together, so the broken combination of a distributed queue with a
+  process-local store cannot be configured.
 - Report export: SARIF ✅ (findings land in GitHub code scanning, from both the CLI
   `--format sarif` and `GET /v1/scans/{id}/report/sarif`); HTML still to do.
 

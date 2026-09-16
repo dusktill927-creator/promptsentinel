@@ -36,6 +36,7 @@ import typer
 from promptsentinel import __version__
 from promptsentinel.api.security import generate_key
 from promptsentinel.cli import render
+from promptsentinel.config import get_settings
 from promptsentinel.core.authorization import REQUIRED_ATTESTATION, require_authorization
 from promptsentinel.core.errors import AuthorizationError, PromptSentinelError
 from promptsentinel.core.models import Confidence, ProbeCategory
@@ -325,6 +326,35 @@ def probes(
         typer.echo(f"{probe_cls.id:42} {probe_cls.category.value}{default}")
         typer.echo(f"  {probe_cls.description}")
     typer.echo(f"\n{len(catalogue)} probes")
+
+
+@app.command()
+def worker() -> None:
+    """Run a scan worker. Requires PROMPTSENTINEL_REDIS_URL.
+
+    Run as many as you need; each takes one scan at a time by default, because a scan
+    spends most of its life waiting on a rate-limited target and running several at once
+    multiplies load on someone's production application rather than draining the queue
+    faster.
+    """
+    from arq.worker import run_worker
+
+    from promptsentinel.jobs.arq_worker import WorkerSettings, _redis_settings
+
+    settings = get_settings()
+    if not settings.distributed:
+        _err(
+            "PROMPTSENTINEL_REDIS_URL is not set. Without it the API runs scans in its "
+            "own process and no separate worker is needed."
+        )
+        raise typer.Exit(EXIT_ERROR)
+
+    typer.echo(f"promptsentinel worker starting against {settings.redis_url}")
+    # redis_settings is passed explicitly rather than read off WorkerSettings: arq would
+    # otherwise default to localhost and connect to the wrong broker in silence.
+    # arq types this parameter as its WorkerSettingsBase protocol, which a plain
+    # settings class cannot satisfy structurally even though arq only reads __dict__.
+    run_worker(WorkerSettings, redis_settings=_redis_settings(settings))  # type: ignore[arg-type]
 
 
 @app.command()
