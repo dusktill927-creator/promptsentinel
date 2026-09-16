@@ -8,7 +8,17 @@ from tests.conftest import LEAKY_MOCK_TARGET, VALID_AUTHORIZATION
 
 
 def body(**overrides):
-    payload = {"target": dict(LEAKY_MOCK_TARGET), "authorization": dict(VALID_AUTHORIZATION)}
+    """A submission pinned to one probe.
+
+    The API tests are about the pipeline, not about probe coverage. Pinning the probe
+    list means adding a probe never breaks them -- and leaves the default-selection
+    behaviour to its own explicit test below.
+    """
+    payload = {
+        "target": dict(LEAKY_MOCK_TARGET),
+        "authorization": dict(VALID_AUTHORIZATION),
+        "probes": ["diagnostic.canary_echo"],
+    }
     payload.update(overrides)
     return payload
 
@@ -52,6 +62,31 @@ class TestAuthorizationGate:
     async def test_the_error_tells_the_caller_what_to_send(self, client):
         response = await client.post("/v1/scans", json=body(authorization={}))
         assert "I own or am authorized to security test this target." in response.json()["detail"]
+
+
+class TestProbeSelection:
+    async def test_default_selection_runs_the_real_probes(self, client):
+        """A scan with no probe list runs the enabled catalogue, not the diagnostic."""
+        payload = {
+            "target": dict(LEAKY_MOCK_TARGET),
+            "authorization": dict(VALID_AUTHORIZATION),
+        }
+        selected = (await client.post("/v1/scans", json=payload)).json()["probes_selected"]
+        assert all(p.startswith("system_prompt.") for p in selected)
+        assert "diagnostic.canary_echo" not in selected
+
+    async def test_a_disabled_probe_can_still_be_named_explicitly(self, client):
+        response = await client.post("/v1/scans", json=body())
+        assert response.json()["probes_selected"] == ["diagnostic.canary_echo"]
+
+    async def test_category_selection(self, client):
+        payload = {
+            "target": dict(LEAKY_MOCK_TARGET),
+            "authorization": dict(VALID_AUTHORIZATION),
+            "categories": ["system_prompt_extraction"],
+        }
+        selected = (await client.post("/v1/scans", json=payload)).json()["probes_selected"]
+        assert selected and all(p.startswith("system_prompt.") for p in selected)
 
 
 class TestSubmission:

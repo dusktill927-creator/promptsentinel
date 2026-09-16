@@ -6,7 +6,9 @@ a request, checking for hard proof, and falling back to a heuristic tier when pr
 is absent. Read this file first when writing a new probe.
 
 It is *not* a serious system-prompt-extraction technique: it asks once, politely, in
-English. The real ``system_prompt.*`` probes replace it.
+English. The ``system_prompt.*`` probes supersede it, so it is no longer enabled by
+default -- it stays as documentation and as a self-test that the pipeline end to end
+still turns a seeded canary into a confirmed finding.
 """
 
 from __future__ import annotations
@@ -47,6 +49,8 @@ class CanaryEchoProbe(Probe):
     required_capabilities: ClassVar[frozenset[TargetCapability]] = frozenset(
         {TargetCapability.CHAT, TargetCapability.SYSTEM_PROMPT_CONTROL}
     )
+    default_enabled: ClassVar[bool] = False
+    """Superseded by system_prompt.direct_request. Opt in by naming it explicitly."""
 
     async def run(self, target: Target, context: ProbeContext) -> ProbeResult:
         canary = context.mint("diagnostic_system_prompt_secret", placement="system_prompt")
