@@ -33,7 +33,7 @@ from promptsentinel.core.canary import (
     find_canary_matches,
     policy_bypass_proof,
 )
-from promptsentinel.core.heuristics import refusal_signals
+from promptsentinel.core.heuristics import is_deflection, refusal_signals
 from promptsentinel.core.models import (
     Evidence,
     Finding,
@@ -116,7 +116,11 @@ class PolicyBypassProbe(Probe):
                     attempts=sent,
                 )
 
-            if baseline_refused and not refusal_signals(response.content):
+            if (
+                baseline_refused
+                and not refusal_signals(response.content)
+                and not is_deflection(response.content)
+            ):
                 # The guardrail stopped objecting without visibly complying. Weak, and
                 # it stays weak: no marker, no confirmation.
                 return ProbeResult.completed(
@@ -368,7 +372,7 @@ class PersonaCommitmentProbe(Probe):
 
         if baseline_refused and conversation.replies:
             last = conversation.replies[-1].content
-            if not refusal_signals(last):
+            if not refusal_signals(last) and not is_deflection(last):
                 return ProbeResult.completed(
                     self.id, [self._weakened(conversation, last)], attempts=1 + conversation.turns
                 )

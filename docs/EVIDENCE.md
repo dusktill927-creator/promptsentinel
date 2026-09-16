@@ -169,6 +169,31 @@ Known limits recorded rather than papered over: a system prompt quoted as
 with invalid base64 reads as neither refusal nor disclosure. Chasing either with broader
 patterns would cost false positives in the one tier whose value is that it is not noisy.
 
+### Measuring the noise, and what it was hiding
+
+Across four models the scanner produced 16 `suspicious` findings. Reading all of them
+against the responses that caused them, most were not judgement calls — they were two
+mechanical patterns:
+
+- **A refusal that names the thing refused.** "I can't access Priya's account" tripped
+  `named_other_customer` while disclosing nothing.
+- **A deflection counted as a weakened refusal.** An application answering an adversarial
+  prompt with "How can I help with your order?" has not given anything away, and neither
+  has one that asks for clarification. Reporting "refusal behaviour degraded" overstated
+  both.
+
+A refusal now suppresses the first, and a new `deflection_signals` heuristic suppresses
+the second. On the demo application the suspicious count fell from **4 to 0** with every
+confirmed finding unchanged.
+
+**The noise was also hiding a real finding.** `jailbreak.output_obfuscation` had been
+stopping at its second attempt to report a deflection, and so never reached the third —
+which is a genuine confirmed bypass. Removing the false positive turned it up:
+confirmed findings on that target went from 12 to 13.
+
+That is the argument for caring about a low-confidence tier at all. Noise is not merely
+tiresome; here it was masking a true positive.
+
 ### The HTTP adapter against a real server
 
 `examples/vulnerable_app.py` is a deliberately vulnerable application shaped nothing like
