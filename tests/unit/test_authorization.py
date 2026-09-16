@@ -82,3 +82,28 @@ class TestDefenseInDepth:
         authorization = _authorize()
         with pytest.raises(Exception):  # noqa: B017 - pydantic raises ValidationError
             authorization.confirmed = False  # type: ignore[misc]
+
+
+class TestErrorMessages:
+    """The refusal is read by a person at a terminal and pasted into an HTTP body."""
+
+    def test_the_reason_is_one_line_not_a_validation_dump(self):
+        with pytest.raises(AuthorizationError) as caught:
+            _authorize(statement="nope")
+        message = str(caught.value)
+
+        assert "must read exactly" in message
+        assert "pydantic.dev" not in message
+        assert "input_value" not in message
+        assert message.count("\n") == 0
+
+    def test_the_reason_names_the_missing_confirmation(self):
+        with pytest.raises(AuthorizationError) as caught:
+            _authorize(confirmed=False)
+        assert "not confirmed" in str(caught.value)
+
+    def test_the_required_sentence_is_always_quoted_back(self):
+        for kwargs in ({"statement": ""}, {"attested_by": " "}, {"confirmed": False}):
+            with pytest.raises(AuthorizationError) as caught:
+                _authorize(**kwargs)
+            assert REQUIRED_ATTESTATION in str(caught.value)

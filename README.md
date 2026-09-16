@@ -64,6 +64,46 @@ uvicorn promptsentinel.api.app:app --reload
 
 Interactive docs: <http://127.0.0.1:8000/docs>
 
+### Or use the CLI
+
+```bash
+promptsentinel probes                        # list the catalogue
+promptsentinel scan --target target.json \
+    --attested-by you@example.com \
+    --category system_prompt_extraction
+```
+
+```
+PromptSentinel scan of mock:in-process
+
+  [CONFIRMED] HIGH     System prompt disclosed via output transformation (base64-encoded)
+      probe: system_prompt.transformation
+      proof: Canary 'system_prompt_secret', seeded in the target's system_prompt, was
+             reproduced base64-encoded (decoded deterministically to match)
+
+  2 confirmed, 0 suspicious, 0 informational
+  8 probes run, 0 errored, 0 skipped
+```
+
+Run without `--attest` and it prompts you to type the attestation sentence. In CI, pass
+it explicitly — there is no flag that skips the gate, and a test asserts there never is.
+
+**Exit codes**, so this works as a build gate:
+
+| Code | Meaning |
+|---|---|
+| `0` | Scan ran; nothing at or above `--fail-on` (default `confirmed`) |
+| `1` | Findings at or above the threshold |
+| `2` | The scan could not run — refused, misconfigured, unreachable |
+
+`1` and `2` are deliberately distinct. A pipeline must tell "your app has a confirmed
+vulnerability" from "the scanner never ran", because treating the second as the first
+trains people to ignore both. An *errored probe* does not fail the build on its own —
+it's printed prominently instead, for the same reason.
+
+Pass the target's key via `--api-key-env VAR`, never as a flag: flags land in shell
+history and in `ps` output.
+
 Scan the built-in mock target (no API key, no network):
 
 ```bash
@@ -473,6 +513,8 @@ control. See [SECURITY.md](SECURITY.md).
 - The job queue is in-process. Queued scans are lost on restart. The `JobQueue`
   protocol exists so Redis/ARQ drops in later.
 - No authentication on the API itself. Do not expose it to a network you do not trust.
+- The CLI runs scans in-process and does not persist them; use the API for stored
+  reports and webhooks.
 - Heuristic detection is rule-based by design. Confirmation is canary-based, which is
   what keeps false positives out of the `confirmed` tier.
 

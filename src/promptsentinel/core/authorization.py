@@ -111,5 +111,24 @@ def require_authorization(
     except Exception as exc:
         raise AuthorizationError(
             "refusing to scan: this target has not been attested as owned or authorized. "
-            f"Submit authorization.statement exactly as: {REQUIRED_ATTESTATION!r} ({exc})"
+            f"Submit authorization.statement exactly as: {REQUIRED_ATTESTATION!r} "
+            f"({_reason(exc)})"
         ) from exc
+
+
+def _reason(exc: Exception) -> str:
+    """The one-line reason, not the whole validation dump.
+
+    This message is read by a person at a terminal and pasted into an HTTP response.
+    A Pydantic traceback with a docs URL buries the single sentence that tells them
+    what to fix.
+    """
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return str(exc)
+    try:
+        first = errors()[0]
+    except (IndexError, TypeError):
+        return str(exc)
+    message = str(first.get("msg", "")).removeprefix("Value error, ")
+    return message or str(exc)

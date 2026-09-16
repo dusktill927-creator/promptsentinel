@@ -98,8 +98,12 @@ It also produced two pieces of shared machinery the later categories inherit:
 - **Alembic migrations** ✅ — with a schema-drift test that diffs the migrated schema
   against the ORM metadata, so a model change without a migration fails CI instead of a
   deploy. `auto_create_schema` stays true for development and false in production.
-- **CLI** (`promptsentinel scan --target ... --attest`) over the same engine, with the
-  authorization gate enforced identically.
+- **CLI** ✅ (`promptsentinel scan`, `probes`, `version`) over the same engine. It builds
+  a `ScanPlan` and hands it over -- it does not reimplement probe selection, scanning or
+  the gate. A second entry point is exactly where a security control quietly acquires a
+  bypass, so a test asserts no `--force`/`--skip-auth`/`--yes` flag exists, and the
+  engine's `Authorization` argument cannot be constructed without a valid attestation
+  anyway. Exit codes separate "found something" (1) from "could not run" (2).
 - **API authentication** — the API currently has none and must not be exposed to an
   untrusted network.
 - **Rate limiting toward the target** — `max_concurrent_probes` bounds parallelism, but
