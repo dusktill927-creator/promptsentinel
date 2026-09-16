@@ -16,7 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from promptsentinel.core.authorization import Authorization
 from promptsentinel.core.canary import Canary
-from promptsentinel.core.models import Finding, ProbeResult, ScanStatus, utcnow
+from promptsentinel.core.models import (
+    Confidence,
+    Evidence,
+    Finding,
+    ProbeCategory,
+    ProbeResult,
+    ProbeStatus,
+    Proof,
+    ScanStatus,
+    Severity,
+    utcnow,
+)
 from promptsentinel.db.models import FindingRow, ProbeRunRow, ScanRow
 from promptsentinel.targets.spec import TargetSpec
 
@@ -125,6 +136,43 @@ class ScanRepository:
         if scan is None:
             raise LookupError(f"scan {scan_id} not found")
         return scan
+
+
+def finding_from_row(row: FindingRow) -> Finding:
+    """Row -> domain finding.
+
+    Reconstruction runs the domain validators, so a stored row that violates the
+    confidence invariant -- ``confirmed`` with a null proof, say, written by a direct
+    database edit -- raises here instead of being exported as a proven finding. The
+    integrity rule is enforced on the way out as well as on the way in.
+    """
+    return Finding(
+        id=row.id,
+        probe_id=row.probe_id,
+        category=ProbeCategory(row.category),
+        title=row.title,
+        description=row.description,
+        severity=Severity(row.severity),
+        confidence=Confidence(row.confidence),
+        evidence=Evidence.model_validate(row.evidence),
+        proof=Proof.model_validate(row.proof) if row.proof else None,
+        signals=[str(signal) for signal in row.signals],
+        created_at=row.created_at,
+    )
+
+
+def probe_result_from_row(row: ProbeRunRow, findings: Sequence[Finding]) -> ProbeResult:
+    """Row -> domain probe result, carrying the findings that belong to it."""
+    status = ProbeStatus(row.status)
+    return ProbeResult(
+        probe_id=row.probe_id,
+        status=status,
+        findings=list(findings) if status is ProbeStatus.COMPLETED else [],
+        attempts=row.attempts,
+        duration_ms=row.duration_ms,
+        error=row.error,
+        detail=row.detail,
+    )
 
 
 def _finding_row(scan_id: str, finding: Finding) -> FindingRow:

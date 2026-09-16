@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from tests.conftest import LEAKY_MOCK_TARGET, VALID_AUTHORIZATION
 
@@ -228,3 +229,66 @@ class TestSecretHandling:
 
         assert report["summary"]["probes_errored"] == 1
         assert report["summary"]["total_findings"] == 0
+
+
+class TestSarifReport:
+    """The SARIF endpoint, including the integrity re-check on the way out."""
+
+    @pytest.fixture
+    async def scan_id(self, client, drain):
+        scan_id = (await client.post("/v1/scans", json=body())).json()["id"]
+        await drain()
+        return scan_id
+
+    async def test_sarif_is_served_for_a_completed_scan(self, client, scan_id):
+        response = await client.get(f"/v1/scans/{scan_id}/report/sarif")
+        assert response.status_code == 200
+        doc = response.json()
+        assert doc["version"] == "2.1.0"
+        assert doc["runs"][0]["results"][0]["level"] == "error"
+
+    async def test_confidence_is_preserved_through_the_database(self, client, scan_id):
+        doc = (await client.get(f"/v1/scans/{scan_id}/report/sarif")).json()
+        result = doc["runs"][0]["results"][0]
+        assert result["properties"]["confidence"] == "confirmed"
+        assert result["properties"]["proven"] is True
+
+    async def test_evidence_is_excluded_by_default(self, client, scan_id):
+        doc = (await client.get(f"/v1/scans/{scan_id}/report/sarif")).json()
+        assert "evidence" not in doc["runs"][0]["results"][0]["properties"]
+
+    async def test_evidence_can_be_requested(self, client, scan_id):
+        doc = (await client.get(f"/v1/scans/{scan_id}/report/sarif?include_evidence=true")).json()
+        assert doc["runs"][0]["results"][0]["properties"]["evidence"]["prompt"]
+
+    async def test_sarif_is_409_before_the_scan_finishes(self, client, app):
+        class StalledQueue:
+            async def enqueue(self, scan_id, target_spec): ...
+            async def aclose(self): ...
+
+        app.state.queue = StalledQueue()
+        scan_id = (await client.post("/v1/scans", json=body())).json()["id"]
+        assert (await client.get(f"/v1/scans/{scan_id}/report/sarif")).status_code == 409
+
+    async def test_sarif_is_404_for_an_unknown_scan(self, client):
+        assert (await client.get("/v1/scans/nope/report/sarif")).status_code == 404
+
+    async def test_a_tampered_finding_row_is_not_exported_as_proven(
+        self, client, database, scan_id
+    ):
+        """Rebuilding domain objects re-runs the confidence invariant.
+
+        A row edited directly in the database to claim `confirmed` without proof must
+        fail loudly rather than export as a proven finding.
+        """
+        from sqlalchemy import update
+
+        from promptsentinel.db.models import FindingRow
+
+        async with database.session() as session:
+            await session.execute(
+                update(FindingRow).where(FindingRow.scan_id == scan_id).values(proof=None)
+            )
+
+        with pytest.raises(ValidationError):
+            await client.get(f"/v1/scans/{scan_id}/report/sarif")

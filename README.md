@@ -104,6 +104,47 @@ it's printed prominently instead, for the same reason.
 Pass the target's key via `--api-key-env VAR`, never as a flag: flags land in shell
 history and in `ps` output.
 
+### SARIF, for GitHub code scanning
+
+```bash
+promptsentinel scan --target target.json --attested-by ci@example.com \
+    --attest "I own or am authorized to security test this target." --no-input \
+    --format sarif --sarif-location src/agent.py --output promptsentinel.sarif
+```
+
+```yaml
+- run: promptsentinel scan ... --format sarif --output promptsentinel.sarif
+  continue-on-error: true          # let the upload run, then gate on the exit code
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: promptsentinel.sarif
+```
+
+Findings then appear in the repository's Security tab, next to every other scanner.
+
+Three decisions in that export are worth knowing about:
+
+**Confidence survives.** SARIF has no confidence concept — a result's `level` reflects
+how bad something is, not how sure you are. Mapping severity alone would render a
+`suspicious` finding identically to a proven one, ending the whole tiering discipline at
+the export boundary. So an unproven finding is **capped at `warning`** however severe it
+would be if real, the tier leads the message text, and it's carried in
+`properties.confidence`, a `confidence:` tag, and a `proven` boolean you can filter on.
+
+**Fingerprints exclude canaries.** Canary values are minted fresh every scan.
+Fingerprinting the evidence would make every finding look new each run and GitHub would
+re-open resolved alerts forever. The fingerprint covers the probe, category and title —
+the identity of the *issue*, not the run that found it.
+
+**Evidence is excluded by default.** Reports contain your application's prompts and
+responses, possibly including your real system prompt; SARIF uploaded to code scanning
+is readable by every collaborator. Pass `--include-evidence` to opt in.
+
+A scan where probes errored sets `executionSuccessful: false` and reports each failure
+as a `toolExecutionNotification`, so a broken scan never uploads as a clean one.
+
+The API serves the same document at `GET /v1/scans/{id}/report/sarif`.
+
 Scan the built-in mock target (no API key, no network):
 
 ```bash

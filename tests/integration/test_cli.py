@@ -165,13 +165,17 @@ class TestOutput:
         assert "proof:" in result.output
 
     def test_json_output_is_parseable(self, target_file):
-        result = scan(target_file(VULNERABLE), "--category", "system_prompt_extraction", "--json")
+        result = scan(
+            target_file(VULNERABLE), "--category", "system_prompt_extraction", "--format", "json"
+        )
         payload = json.loads(result.output)
         assert payload["summary"]["confirmed"] >= 1
         assert payload["findings"][0]["proof"]["kind"] == "canary_disclosure"
 
     def test_json_redacts_seeded_canaries(self, target_file):
-        result = scan(target_file(VULNERABLE), "--category", "system_prompt_extraction", "--json")
+        result = scan(
+            target_file(VULNERABLE), "--category", "system_prompt_extraction", "--format", "json"
+        )
         payload = json.loads(result.output)
         assert payload["canaries_seeded"]
         assert all(c["value"].endswith("[redacted]") for c in payload["canaries_seeded"])

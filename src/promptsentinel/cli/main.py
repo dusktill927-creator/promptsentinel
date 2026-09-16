@@ -41,6 +41,7 @@ from promptsentinel.core.errors import AuthorizationError, PromptSentinelError
 from promptsentinel.core.models import Confidence, ProbeCategory
 from promptsentinel.engine.runner import ScanEngine, ScanOutcome, ScanPlan
 from promptsentinel.probes.registry import REGISTRY
+from promptsentinel.reporting import to_sarif
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.rate_limit import RateLimit
 from promptsentinel.targets.spec import (
@@ -59,6 +60,14 @@ app = typer.Typer(
 EXIT_OK = 0
 EXIT_FINDINGS = 1
 EXIT_ERROR = 2
+
+
+class OutputFormat(StrEnum):
+    """How to render the report."""
+
+    TEXT = "text"
+    JSON = "json"
+    SARIF = "sarif"
 
 
 class FailOn(StrEnum):
@@ -155,7 +164,26 @@ def scan(
     fail_on: Annotated[
         FailOn, typer.Option(help="Which findings exit non-zero.")
     ] = FailOn.CONFIRMED,
-    json_output: Annotated[bool, typer.Option("--json", help="Emit JSON instead of text.")] = False,
+    output_format: Annotated[
+        OutputFormat, typer.Option("--format", "-f", help="Report format.")
+    ] = OutputFormat.TEXT,
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Write the report here instead of stdout.")
+    ] = None,
+    include_evidence: Annotated[
+        bool,
+        typer.Option(
+            help=(
+                "Include prompts and responses in SARIF. Off by default: SARIF is "
+                "usually uploaded somewhere shared, and evidence contains your app's "
+                "own output."
+            )
+        ),
+    ] = False,
+    sarif_location: Annotated[
+        str | None,
+        typer.Option(help="Repo-relative file to attribute findings to, e.g. src/agent.py."),
+    ] = None,
     no_input: Annotated[bool, typer.Option("--no-input", help="Never prompt; for CI.")] = False,
     allow_mock: Annotated[bool, typer.Option(help="Permit mock targets (demos and tests).")] = True,
     probe_timeout: Annotated[float, typer.Option(help="Seconds per probe.")] = 60.0,
@@ -200,12 +228,48 @@ def scan(
         raise typer.Exit(EXIT_ERROR) from exc
 
     description = target.describe()
-    if json_output:
-        typer.echo(render.render_json(outcome, target=description))
+    report = _format(
+        outcome,
+        target=description,
+        output_format=output_format,
+        include_evidence=include_evidence,
+        sarif_location=sarif_location,
+    )
+
+    if output is not None:
+        output.write_text(report)
+        typer.echo(f"wrote {output_format.value} report to {output}")
     else:
-        typer.echo(render.render_text(outcome, target=description))
+        typer.echo(report)
 
     raise typer.Exit(_exit_code(outcome, fail_on))
+
+
+def _format(
+    outcome: ScanOutcome,
+    *,
+    target: str,
+    output_format: OutputFormat,
+    include_evidence: bool,
+    sarif_location: str | None,
+) -> str:
+    """Render the outcome.
+
+    Evidence is included in the tool's own JSON but not in SARIF unless asked. The JSON
+    report is the operator reading their own data locally; a SARIF file is usually
+    uploaded to a platform where every collaborator can read it.
+    """
+    if output_format is OutputFormat.SARIF:
+        document = to_sarif(
+            outcome.results,
+            target=target,
+            location=sarif_location,
+            include_evidence=include_evidence,
+        )
+        return json.dumps(document, indent=2)
+    if output_format is OutputFormat.JSON:
+        return render.render_json(outcome, target=target)
+    return render.render_text(outcome, target=target)
 
 
 async def _run(engine: ScanEngine, plan: ScanPlan, target) -> ScanOutcome:  # type: ignore[no-untyped-def]

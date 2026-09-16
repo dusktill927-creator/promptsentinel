@@ -125,7 +125,18 @@ It also produced two pieces of shared machinery the later categories inherit:
 
 - Distributed job queue (ARQ/Redis) behind the existing `JobQueue` protocol, with a
   secrets backend for target credentials.
-- Report export: SARIF (so findings land in GitHub code scanning) and HTML.
+- Report export: SARIF ✅ (findings land in GitHub code scanning, from both the CLI
+  `--format sarif` and `GET /v1/scans/{id}/report/sarif`); HTML still to do.
+
+  The export is where the confidence tiering was most at risk, because SARIF has no
+  concept of it. An unproven finding is capped at `warning` rather than mapped by
+  severity alone, so it cannot be mistaken for a proven one; fingerprints deliberately
+  exclude per-scan canaries so resolved alerts stay resolved; and evidence is opt-in
+  because SARIF usually lands somewhere every collaborator can read.
+
+  Findings are rebuilt as domain objects on the way out of the database, which re-runs
+  the confidence invariant -- a row edited to claim proof it does not have fails the
+  export rather than being published as confirmed.
 - A thin dashboard. API and CLI first — the dashboard should have no capability the API
   lacks.
 

@@ -7,6 +7,8 @@ LLM app takes minutes; a synchronous endpoint would be a timeout generator.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from promptsentinel.api.deps import DatabaseDep, QueueDep, RegistryDep, SettingsDep
@@ -19,8 +21,14 @@ from promptsentinel.api.schemas import (
 )
 from promptsentinel.core.authorization import require_authorization
 from promptsentinel.core.errors import ConfigurationError
-from promptsentinel.core.models import ScanStatus
-from promptsentinel.db.repository import ScanRepository
+from promptsentinel.core.models import Finding, ProbeResult, ScanStatus
+from promptsentinel.db.models import ScanRow
+from promptsentinel.db.repository import (
+    ScanRepository,
+    finding_from_row,
+    probe_result_from_row,
+)
+from promptsentinel.reporting import to_sarif
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.spec import MockTargetSpec
 
@@ -133,6 +141,41 @@ async def get_scan(scan_id: str, database: DatabaseDep) -> ScanStatusOut:
 
 
 @router.get(
+    "/{scan_id}/report/sarif",
+    summary="Scan report as SARIF 2.1.0",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse, "description": "Scan has not finished"},
+    },
+)
+async def get_sarif_report(
+    scan_id: str,
+    database: DatabaseDep,
+    include_evidence: bool = Query(
+        default=False,
+        description=(
+            "Include prompts and responses. Off by default: SARIF is usually uploaded "
+            "to a shared platform and evidence contains your application's output."
+        ),
+    ),
+) -> dict[str, Any]:
+    """Findings in SARIF, for GitHub code scanning and similar consumers.
+
+    Findings are rebuilt as domain objects on the way out, which re-runs the confidence
+    invariant: a row edited directly in the database to claim proof it does not have
+    fails here rather than being exported as confirmed.
+    """
+    async with database.session() as session:
+        scan = await _terminal_scan(ScanRepository(session), scan_id)
+        results = _domain_results(scan)
+        return to_sarif(
+            results,
+            target=scan.target_description,
+            include_evidence=include_evidence,
+        )
+
+
+@router.get(
     "/{scan_id}/report",
     summary="Scan report",
     responses={
@@ -148,17 +191,31 @@ async def get_report(scan_id: str, database: DatabaseDep, response: Response) ->
     to wait, and ``Retry-After`` tells it how long.
     """
     async with database.session() as session:
-        scan = await ScanRepository(session).get(scan_id)
-        if scan is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"scan {scan_id} not found")
-        if not ScanStatus(scan.status).is_terminal:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail=(
-                    f"scan {scan_id} is {scan.status}; "
-                    f"poll /v1/scans/{scan_id} until it reaches a terminal state"
-                ),
-                headers={"Retry-After": "5"},
-            )
+        scan = await _terminal_scan(ScanRepository(session), scan_id)
         response.headers["Cache-Control"] = "private, max-age=300"
         return ScanReport.from_row(scan)
+
+
+async def _terminal_scan(repository: ScanRepository, scan_id: str) -> ScanRow:
+    """Load a scan, refusing to report on one that has not finished."""
+    scan = await repository.get(scan_id)
+    if scan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"scan {scan_id} not found")
+    if not ScanStatus(scan.status).is_terminal:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"scan {scan_id} is {scan.status}; "
+                f"poll /v1/scans/{scan_id} until it reaches a terminal state"
+            ),
+            headers={"Retry-After": "5"},
+        )
+    return scan
+
+
+def _domain_results(scan: ScanRow) -> list[ProbeResult]:
+    """Regroup stored rows into the domain shape the reporters consume."""
+    by_probe: dict[str, list[Finding]] = {}
+    for row in scan.findings:
+        by_probe.setdefault(row.probe_id, []).append(finding_from_row(row))
+    return [probe_result_from_row(run, by_probe.get(run.probe_id, [])) for run in scan.probe_runs]
