@@ -857,6 +857,8 @@ mypy                    # strict mode
 
 CI runs all four on Python 3.11, 3.12 and 3.13, plus a Postgres compatibility job.
 
+Release history and the reasoning behind each change: [CHANGELOG.md](CHANGELOG.md).
+
 ```bash
 pip install -e ".[dev,postgres]"
 PROMPTSENTINEL_TEST_POSTGRES_URL=postgresql+asyncpg://postgres@localhost:5432/postgres \
@@ -919,7 +921,8 @@ to be careful.
 
 **Known V1 limitations**, stated plainly:
 
-- No authentication on the API itself. Do not expose it to a network you do not trust.
+- API keys are all-or-nothing. Any valid key can submit a scan and read any report;
+  there is no per-user scoping, no roles and no multi-tenancy.
 - The CLI runs scans in-process and does not persist them; use the API for stored
   reports and webhooks.
 - Heuristic detection is rule-based by design. Confirmation is canary-based, which is
