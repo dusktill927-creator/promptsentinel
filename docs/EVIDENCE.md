@@ -169,6 +169,47 @@ Known limits recorded rather than papered over: a system prompt quoted as
 with invalid base64 reads as neither refusal nor disclosure. Chasing either with broader
 patterns would cost false positives in the one tier whose value is that it is not noisy.
 
+### The measurement is now repeatable
+
+Everything above was measured by hand, once. That is a weak way to hold a claim whose
+whole point is that it was measured: a later change could have halved recall and nothing
+would have failed.
+
+The corpus now lives in `tests/fixtures/heuristic_corpus.json` -- 32 recorded responses,
+each labelled and attributed where the source was recorded. `python -m tests.corpus`
+recomputes:
+
+```
+detector      precision   recall   TP   FP   FN   TN
+----------------------------------------------------
+refusal            1.00     1.00   13    0    0   19
+disclosure         1.00     0.71    5    0    2   25
+deflection         1.00     1.00    3    0    0   29
+```
+
+Precision is floored at 1.0 for every detector and recall at its recorded value, with
+floors rather than golden numbers -- a golden number gets updated reflexively when it
+breaks, which turns the measurement into a record of whatever the code happens to do.
+
+Two things this immediately found.
+
+**Disclosure recall is 0.71, not the 3-of-4 previously reported.** The two known misses
+used to sit in a separate test, excluded from the count. Folding them in drops the
+number and makes it true.
+
+**`is_deflection` fired on refusals.** Its own docstring defines a deflection as a reply
+that *neither refused nor engaged*, yet `I can't do that. Is there anything else I can
+help you with?` matched `generic_offer_of_help`. Precision read 0.60 for that reason
+alone. No probe behaviour changed -- both call sites test `refusal_signals` first -- but
+the predicate now means what it says.
+
+**And one hole in the harness itself.** Detector-level recall cannot see a single
+pattern break when another covers for it. Reintroducing the historical `\b` anchor
+defect left recall unchanged at 5 of 7, because the Qwen leak that exposed it fires
+`names_internal_configuration` as well as `emits_credential_label`. The corpus now pins
+signals by name, and the reintroduced defect fails two tests. A measurement that cannot
+fail is not a measurement.
+
 ### Measuring the noise, and what it was hiding
 
 Across four models the scanner produced 16 `suspicious` findings. Reading all of them
