@@ -42,7 +42,7 @@ from promptsentinel.core.errors import AuthorizationError, PromptSentinelError
 from promptsentinel.core.models import Confidence, ProbeCategory
 from promptsentinel.engine.runner import ScanEngine, ScanOutcome, ScanPlan
 from promptsentinel.probes.registry import REGISTRY
-from promptsentinel.reporting import to_sarif
+from promptsentinel.reporting import render_report, to_sarif
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.rate_limit import RateLimit
 from promptsentinel.targets.spec import (
@@ -69,6 +69,7 @@ class OutputFormat(StrEnum):
     TEXT = "text"
     JSON = "json"
     SARIF = "sarif"
+    HTML = "html"
 
 
 class FailOn(StrEnum):
@@ -181,6 +182,10 @@ def scan(
             )
         ),
     ] = False,
+    exclude_evidence: Annotated[
+        bool,
+        typer.Option(help="Omit transcripts from the HTML report, e.g. before sharing it."),
+    ] = False,
     sarif_location: Annotated[
         str | None,
         typer.Option(help="Repo-relative file to attribute findings to, e.g. src/agent.py."),
@@ -234,6 +239,7 @@ def scan(
         target=description,
         output_format=output_format,
         include_evidence=include_evidence,
+        exclude_evidence=exclude_evidence,
         sarif_location=sarif_location,
     )
 
@@ -252,14 +258,26 @@ def _format(
     target: str,
     output_format: OutputFormat,
     include_evidence: bool,
+    exclude_evidence: bool,
     sarif_location: str | None,
 ) -> str:
     """Render the outcome.
 
-    Evidence is included in the tool's own JSON but not in SARIF unless asked. The JSON
-    report is the operator reading their own data locally; a SARIF file is usually
-    uploaded to a platform where every collaborator can read it.
+    Evidence handling differs by format, following where each one goes. The tool's own
+    JSON and the HTML report include it: those are the operator reading their own data.
+    SARIF omits it unless asked, because it is usually uploaded to a platform every
+    collaborator can read.
     """
+    if output_format is OutputFormat.HTML:
+        return render_report(
+            outcome.results,
+            target=target,
+            include_evidence=not exclude_evidence,
+            seeded=[
+                {"label": c.label, "placement": c.placement, "value": c.redacted}
+                for c in outcome.canaries
+            ],
+        )
     if output_format is OutputFormat.SARIF:
         document = to_sarif(
             outcome.results,

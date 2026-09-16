@@ -388,3 +388,66 @@ class TestCredentialHandling:
         scan_id = listing.json()[0]["id"]
         with pytest.raises(SecretNotFoundError):
             await app.state.secrets.get(scan_secret_key(scan_id))
+
+
+class TestHtmlReport:
+    @pytest.fixture
+    async def scan_id(self, client, drain):
+        scan_id = (await client.post("/v1/scans", json=body())).json()["id"]
+        await drain()
+        return scan_id
+
+    async def test_html_is_served_for_a_completed_scan(self, client, scan_id):
+        response = await client.get(f"/v1/scans/{scan_id}/report/html")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert response.text.startswith("<!doctype html>")
+
+    async def test_the_page_declares_a_restrictive_policy(self, client, scan_id):
+        """Built from escaped text with no scripts; the header makes a browser enforce it."""
+        response = await client.get(f"/v1/scans/{scan_id}/report/html")
+        assert "default-src 'none'" in response.headers["content-security-policy"]
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+    async def test_the_seeded_values_table_is_redacted(self, client, scan_id):
+        """The audit table shows a truncated prefix, never a replayable value."""
+        response = await client.get(f"/v1/scans/{scan_id}/report/html")
+        assert "Seeded values" in response.text
+        assert "[redacted]" in response.text
+
+    async def test_transcripts_do_contain_the_leaked_value(self, client, scan_id):
+        """Deliberate. The transcript is the evidence -- a redacted one proves nothing.
+
+        It is also exactly why the report warns that it contains transcripts and why
+        --exclude-evidence exists for sharing.
+        """
+        import re
+
+        response = await client.get(f"/v1/scans/{scan_id}/report/html")
+        assert re.search(r"PSCANARY-[0-9a-f]{32}", response.text)
+        assert "Contains transcripts" in response.text
+
+    async def test_excluding_transcripts_removes_every_leaked_value(self, client, scan_id):
+        import re
+
+        response = await client.get(f"/v1/scans/{scan_id}/report/html?include_evidence=false")
+        assert not re.search(r"PSCANARY-[0-9a-f]{32}", response.text)
+        assert "Seeded values" in response.text
+
+    async def test_transcripts_can_be_omitted(self, client, scan_id):
+        with_evidence = await client.get(f"/v1/scans/{scan_id}/report/html")
+        without = await client.get(f"/v1/scans/{scan_id}/report/html?include_evidence=false")
+        assert "Transcript" in with_evidence.text
+        assert "Transcript" not in without.text
+
+    async def test_html_is_409_before_the_scan_finishes(self, client, app):
+        class StalledQueue:
+            async def enqueue(self, scan_id): ...
+            async def aclose(self): ...
+
+        app.state.queue = StalledQueue()
+        scan_id = (await client.post("/v1/scans", json=body())).json()["id"]
+        assert (await client.get(f"/v1/scans/{scan_id}/report/html")).status_code == 409
+
+    async def test_html_is_404_for_an_unknown_scan(self, client):
+        assert (await client.get("/v1/scans/nope/report/html")).status_code == 404

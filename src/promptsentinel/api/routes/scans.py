@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi.responses import HTMLResponse
 
 from promptsentinel.api.deps import (
     DatabaseDep,
@@ -34,7 +35,7 @@ from promptsentinel.db.repository import (
     finding_from_row,
     probe_result_from_row,
 )
-from promptsentinel.reporting import to_sarif
+from promptsentinel.reporting import render_report, to_sarif
 from promptsentinel.secrets import scan_secret_key
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.spec import MockTargetSpec, serialize_with_secrets
@@ -158,6 +159,39 @@ async def get_scan(scan_id: str, database: DatabaseDep) -> ScanStatusOut:
         if scan is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"scan {scan_id} not found")
         return ScanStatusOut.from_row(scan)
+
+
+@router.get(
+    "/{scan_id}/report/html",
+    summary="Scan report as a standalone HTML page",
+    response_class=HTMLResponse,
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+async def get_html_report(
+    scan_id: str,
+    database: DatabaseDep,
+    include_evidence: bool = Query(default=True, description="Include transcripts."),
+) -> HTMLResponse:
+    """A self-contained report page, for sending to whoever owns the application."""
+    async with database.session() as session:
+        scan = await _terminal_scan(ScanRepository(session), scan_id)
+        document = render_report(
+            _domain_results(scan),
+            target=scan.target_description,
+            scan_id=scan.id,
+            generated_at=scan.finished_at,
+            include_evidence=include_evidence,
+            seeded=[dict(entry) for entry in scan.canaries_seeded],
+        )
+    # The page is built entirely from escaped text and carries no scripts; the policy
+    # says so explicitly so a browser enforces it even if that ever stops being true.
+    return HTMLResponse(
+        document,
+        headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get(

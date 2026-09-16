@@ -299,3 +299,35 @@ class TestCatalogue:
 
         result = runner.invoke(app, ["version"])
         assert result.output.strip() == __version__
+
+
+class TestHtmlOutput:
+    def test_html_is_a_self_contained_document(self, target_file):
+        result = scan(target_file(VULNERABLE), "--format", "html", "--fail-on", "never")
+        assert result.output.strip().startswith("<!doctype html>")
+        assert "<style>" in result.output
+
+    def test_html_includes_findings_and_seeded_values(self, target_file):
+        result = scan(target_file(VULNERABLE), "--format", "html", "--fail-on", "never")
+        assert "CONFIRMED" in result.output.upper()
+        assert "Seeded values" in result.output
+
+    def test_transcripts_can_be_excluded_before_sharing(self, target_file):
+        result = scan(
+            target_file(VULNERABLE),
+            "--format",
+            "html",
+            "--exclude-evidence",
+            "--fail-on",
+            "never",
+        )
+        assert "Transcript" not in result.output
+        assert "Contains transcripts" not in result.output
+
+    def test_writing_to_a_file(self, target_file, tmp_path):
+        out = tmp_path / "report.html"
+        result = scan(
+            target_file(VULNERABLE), "--format", "html", "-o", str(out), "--fail-on", "never"
+        )
+        assert f"wrote html report to {out}" in result.output
+        assert out.read_text().startswith("<!doctype html>")
