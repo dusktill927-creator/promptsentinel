@@ -48,6 +48,11 @@ def settings(tmp_path) -> Settings:
         allow_unauthenticated=True,
         max_concurrent_scans=2,
         max_concurrent_probes=4,
+        # Pacing is effectively disabled here. The token bucket has its own
+        # deterministic tests with an injected clock; letting real sleeps into the
+        # integration suite buys no extra confidence and costs several seconds a run.
+        target_requests_per_second=1000.0,
+        target_burst=1000,
         probe_timeout_s=5.0,
         scan_timeout_s=30.0,
     )

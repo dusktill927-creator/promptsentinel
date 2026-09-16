@@ -56,7 +56,11 @@ class ScanWorker:
                     return
                 plan = self._build_plan(scan)
 
-            target = build_target(target_spec, allow_mock=self._settings.allow_mock_targets)
+            target = build_target(
+                target_spec,
+                allow_mock=self._settings.allow_mock_targets,
+                rate_limit=self._settings.rate_limit,
+            )
             engine = ScanEngine(
                 max_concurrent_probes=self._settings.max_concurrent_probes,
                 probe_timeout_s=self._settings.probe_timeout_s,

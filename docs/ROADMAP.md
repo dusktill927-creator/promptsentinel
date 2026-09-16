@@ -109,9 +109,12 @@ It also produced two pieces of shared machinery the later categories inherit:
   reason. The server refuses to boot with neither keys nor an explicit opt-out: the
   failure mode of a startup warning is an unauthenticated scanner running for months.
   Health endpoints stay unguarded so credential rotation cannot look like an outage.
-- **Rate limiting toward the target** — `max_concurrent_probes` bounds parallelism, but
-  a token-bucket per target would be a stronger guarantee that a scan never resembles a
-  denial-of-service against the operator's own application.
+- **Rate limiting toward the target** ✅ — a token bucket wrapping every target, so
+  pacing applies by construction and no future adapter can forget it. Defaults to 2
+  requests/second with a burst of 4: a rate a human could plausibly generate, chosen so
+  a first scan never needs a capacity review. The bucket takes an injected clock and
+  sleep, so its behaviour is verified exactly and instantly rather than with real
+  sleeps.
 - **Postgres in CI** — the code is written for it; CI should prove it.
 
 ## Phase 3 — Product surface

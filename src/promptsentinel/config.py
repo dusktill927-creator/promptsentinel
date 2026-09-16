@@ -14,6 +14,8 @@ from typing import Annotated
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from promptsentinel.targets.rate_limit import RateLimit
+
 
 class Settings(BaseSettings):
     """Process configuration."""
@@ -66,6 +68,16 @@ class Settings(BaseSettings):
     request rate the target sees -- keep it low: PromptSentinel must never look like
     a denial-of-service against the operator's own application."""
 
+    target_requests_per_second: float = 2.0
+    """Sustained request rate allowed against the target.
+
+    Deliberately low. This is someone's production application, and the default should
+    be a rate a human could plausibly generate rather than one that needs a capacity
+    review before the first scan."""
+
+    target_burst: int = 4
+    """Requests allowed back to back before pacing engages."""
+
     probe_timeout_s: float = 60.0
     """Wall clock per probe. A hung probe must not be able to stall a scan forever."""
 
@@ -84,6 +96,13 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
+
+    @property
+    def rate_limit(self) -> RateLimit:
+        """Pacing for a scan's target."""
+        return RateLimit(
+            requests_per_second=self.target_requests_per_second, burst=self.target_burst
+        )
 
 
 @lru_cache

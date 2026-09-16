@@ -39,7 +39,21 @@ def target_file(tmp_path):
 
 
 def scan(target: str, *extra: str, attest: bool = True, stdin: str | None = None):
-    args = ["scan", "-t", target, "--attested-by", "tester@example.com", "--no-input"]
+    # Pacing is turned up out of the way: these tests are about the CLI's behaviour,
+    # and the default 2 req/s would add seconds per multi-probe invocation. That the
+    # CLI paces at all is asserted in test_rate_limit_wiring.py.
+    args = [
+        "scan",
+        "-t",
+        target,
+        "--attested-by",
+        "tester@example.com",
+        "--no-input",
+        "--rate",
+        "1000",
+        "--burst",
+        "1000",
+    ]
     if attest:
         args += ["--attest", REQUIRED_ATTESTATION]
     return runner.invoke(app, [*args, *extra], input=stdin)

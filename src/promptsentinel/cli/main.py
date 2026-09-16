@@ -42,6 +42,7 @@ from promptsentinel.core.models import Confidence, ProbeCategory
 from promptsentinel.engine.runner import ScanEngine, ScanOutcome, ScanPlan
 from promptsentinel.probes.registry import REGISTRY
 from promptsentinel.targets.factory import build_target
+from promptsentinel.targets.rate_limit import RateLimit
 from promptsentinel.targets.spec import (
     MockTargetSpec,
     OpenAICompatibleTargetSpec,
@@ -159,6 +160,10 @@ def scan(
     allow_mock: Annotated[bool, typer.Option(help="Permit mock targets (demos and tests).")] = True,
     probe_timeout: Annotated[float, typer.Option(help="Seconds per probe.")] = 60.0,
     concurrency: Annotated[int, typer.Option(help="Probes in flight at once.")] = 4,
+    rate: Annotated[
+        float, typer.Option(help="Max sustained requests per second against the target.")
+    ] = 2.0,
+    burst: Annotated[int, typer.Option(help="Requests allowed back to back.")] = 4,
 ) -> None:
     """Scan a target you own or are authorized to test."""
     try:
@@ -171,7 +176,13 @@ def scan(
         )
         categories = [ProbeCategory(c) for c in category] if category else None
         probes = REGISTRY.select(probe_ids=probe or None, categories=categories)
-        target = build_target(spec, allow_mock=allow_mock)
+        target = build_target(
+            spec,
+            allow_mock=allow_mock,
+            # Paced by default. The target is someone's production application, and a
+            # scanner that needs a capacity review before first use will not be run.
+            rate_limit=RateLimit(requests_per_second=rate, burst=burst),
+        )
     except AuthorizationError as exc:
         _err(f"\n{exc}\n")
         raise typer.Exit(EXIT_ERROR) from exc

@@ -176,6 +176,22 @@ written to disk**, at the cost of the queue being in-process only. A distributed
 would need a real secrets backend — a deliberate trade, recorded here rather than
 discovered later.
 
+## Pacing the target
+
+`max_concurrent_probes` bounds parallelism, not rate. Four probes against a fast
+endpoint can still produce hundreds of requests per second at an application that was
+never sized for it.
+
+Pacing is therefore applied by **composition**: `RateLimitedTarget` wraps any `Target`
+and every `send()` passes through a token bucket. The alternative -- putting the limiter
+inside each adapter -- means the guarantee holds only for adapters whose authors
+remembered it. Delegation in the wrapper is written out member by member rather than
+done with `__getattr__`, so adding a method to the `Target` interface fails type checking
+in the wrapper instead of silently bypassing the limiter at runtime.
+
+The bucket holds its lock across the wait. Releasing it first would let every queued
+caller wake simultaneously and fire together -- exactly the burst it exists to prevent.
+
 ## Failure honesty
 
 The recurring theme across the engine, worker and report:

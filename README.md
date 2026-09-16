@@ -554,6 +554,25 @@ alembic revision --autogenerate -m "add x"   # after changing a model
 or internet-wide scanning, and any use of the probe corpus to attack systems you do not
 control. See [SECURITY.md](SECURITY.md).
 
+### Pacing
+
+The target is your production application, so requests are paced by a token bucket —
+**2 requests/second with a burst of 4** by default:
+
+```bash
+promptsentinel scan ... --rate 2 --burst 4      # CLI
+PROMPTSENTINEL_TARGET_REQUESTS_PER_SECOND=2     # API
+```
+
+`max_concurrent_probes` bounds how many probes run at once; it does *not* bound the
+request rate — four probes against a fast endpoint can still produce hundreds of
+requests a second. Pacing is applied by wrapping the target
+(`RateLimitedTarget`), so every target kind is paced by construction and a new adapter
+cannot forget to do it.
+
+A security scan that degrades the thing it is testing is an outage you caused by trying
+to be careful.
+
 **Known V1 limitations**, stated plainly:
 
 - The job queue is in-process. Queued scans are lost on restart. The `JobQueue`
