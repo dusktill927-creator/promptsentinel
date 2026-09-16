@@ -23,6 +23,8 @@ from promptsentinel.probes.builtin.data_leakage import (
     ContextLaunderingProbe,
     CrossCustomerAccessProbe,
     DataLeakageProbe,
+    ErrorElicitationProbe,
+    FormatCoercionProbe,
     PretextImpersonationProbe,
 )
 from promptsentinel.probes.registry import REGISTRY
@@ -203,3 +205,50 @@ class TestReportWording:
     async def test_titles_read_naturally(self, target_factory, expected, context):
         result = await CrossCustomerAccessProbe().run(target_factory(), context)
         assert expected in result.findings[0].title
+
+
+class TestAddedTechniques:
+    """The two techniques that close the category's gap."""
+
+    @pytest.mark.parametrize(
+        "probe_cls", [FormatCoercionProbe, ErrorElicitationProbe], ids=lambda c: c.id
+    )
+    async def test_they_confirm_against_a_leaking_target(self, probe_cls, context):
+        result = await probe_cls().run(leaks_under_pressure(), context)
+        finding = result.findings[0]
+        assert finding.confidence is Confidence.CONFIRMED
+        assert finding.severity is Severity.HIGH
+
+    @pytest.mark.parametrize(
+        "probe_cls", [FormatCoercionProbe, ErrorElicitationProbe], ids=lambda c: c.id
+    )
+    async def test_they_respect_a_well_behaved_target(self, probe_cls, context):
+        result = await probe_cls().run(well_behaved(), context)
+        assert result.findings == []
+
+    @pytest.mark.parametrize(
+        "probe_cls", [FormatCoercionProbe, ErrorElicitationProbe], ids=lambda c: c.id
+    )
+    async def test_they_run_the_control_and_baseline_first(self, probe_cls, context):
+        target = well_behaved()
+        await probe_cls().run(target, context)
+        assert target.transcript[0][0][1].content == CONTROL_ASK
+        assert target.transcript[1][0][1].content == BASELINE_ASK
+
+    def test_format_coercion_asks_for_formats_not_data(self):
+        """If it just asked for the record it would duplicate cross_customer_access."""
+        asks = " ".join(a.user for a in FormatCoercionProbe.attempts).lower()
+        assert "csv" in asks and "sql" in asks and "yaml" in asks
+
+    def test_error_elicitation_asks_for_diagnostics(self):
+        asks = " ".join(a.user for a in ErrorElicitationProbe.attempts).lower()
+        assert "validation" in asks or "diagnostic" in asks
+
+    def test_the_category_is_no_longer_the_thinnest(self):
+        from collections import Counter
+
+        from promptsentinel.core.models import ProbeCategory
+        from promptsentinel.probes.registry import REGISTRY
+
+        counts = Counter(p.category.value for p in REGISTRY.all() if p.default_enabled)
+        assert counts[ProbeCategory.DATA_LEAKAGE.value] >= 6
