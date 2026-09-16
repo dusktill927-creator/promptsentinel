@@ -126,6 +126,40 @@ promptsentinel scan --target target.json --attested-by ci@example.com \
 
 Findings then appear in the repository's Security tab, next to every other scanner.
 
+### Failing only on regressions
+
+A scanner that reports the same twelve findings every run gets switched off. `diff`
+answers the narrower question CI actually cares about — *did this change make things
+worse?*
+
+```bash
+promptsentinel scan ... --format json -o current.json --fail-on never
+promptsentinel diff baseline.json current.json          # exit 1 only on NEW findings
+```
+
+```
+NEW (4):
+  [confirmed] high system_prompt.direct_request - System prompt disclosed via direct request
+  ...
+4 new, 0 fixed, 1 unchanged
+4 new finding(s) at or above 'confirmed' - gate fails
+```
+
+Findings are matched on the same fingerprint SARIF uses — probe, category and title,
+deliberately **excluding evidence and proof**, which contain canaries minted fresh every
+run. Fingerprint those and every finding looks new, and the diff reports nothing but churn.
+
+Coverage is compared too. If a probe produced a verdict last run and errored this one,
+that's reported **above** the counts:
+
+```
+COVERAGE LOST: these probes produced a verdict before and did not this time, so any
+finding they would have reported is simply absent:
+  - indirect_injection.hidden_markup
+```
+
+A finding that vanished because its probe stopped running has not been fixed.
+
 Three decisions in that export are worth knowing about:
 
 **Confidence survives.** SARIF has no confidence concept — a result's `level` reflects

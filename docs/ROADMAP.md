@@ -166,8 +166,17 @@ It also produced two pieces of shared machinery the later categories inherit:
   `run(target, context)` was general enough, and multi-turn state belongs to the probe
   rather than to the engine.
 
-- Remaining: more techniques per category, additional target adapters (Anthropic-native,
-  LangServe, generic HTTP), and scan diffing so CI can fail only on *new* findings.
+- **Scan diffing** ✅ — `promptsentinel diff baseline.json current.json` fails only on
+  findings that are new, so a backlog does not fail every build. Findings are matched on
+  the SARIF fingerprint, which excludes evidence and proof precisely because those
+  contain per-scan canaries.
+
+  Coverage is diffed alongside findings and reported above the counts: a finding that
+  vanished because its probe stopped running has not been fixed, and a diff that only
+  counted findings would be quietly reassuring at exactly the wrong moment.
+
+- Remaining: more techniques per category, and additional target adapters
+  (Anthropic-native, LangServe, generic HTTP).
 
 ## Phase 3 complete
 

@@ -42,7 +42,9 @@ from promptsentinel.core.errors import AuthorizationError, PromptSentinelError
 from promptsentinel.core.models import Confidence, ProbeCategory
 from promptsentinel.engine.runner import ScanEngine, ScanOutcome, ScanPlan
 from promptsentinel.probes.registry import REGISTRY
-from promptsentinel.reporting import render_report, to_sarif
+from promptsentinel.reporting import diff_reports, load_report, render_report, to_sarif
+from promptsentinel.reporting.diff import render_json as diff_json
+from promptsentinel.reporting.diff import render_text as diff_text
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.rate_limit import RateLimit
 from promptsentinel.targets.spec import (
@@ -332,6 +334,44 @@ def _exit_code(outcome: ScanOutcome, fail_on: FailOn) -> int:
         tiers.add(Confidence.SUSPICIOUS)
     hit = any(f.confidence in tiers for result in outcome.results for f in result.findings)
     return EXIT_FINDINGS if hit else EXIT_OK
+
+
+@app.command()
+def diff(
+    baseline: Annotated[Path, typer.Argument(help="Earlier report (scan --format json).")],
+    current: Annotated[Path, typer.Argument(help="Newer report to compare against it.")],
+    fail_on: Annotated[
+        FailOn, typer.Option(help="Which NEW findings exit non-zero.")
+    ] = FailOn.CONFIRMED,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit JSON.")] = False,
+) -> None:
+    """Compare two scans and fail only on findings that are new.
+
+    This is the form a team keeps enabled. A scanner that reports the same twelve
+    findings every run gets switched off; one that answers "did this change make things
+    worse" survives contact with a real backlog.
+
+    Exit codes match `scan`: 0 clean, 1 new findings at or above --fail-on, 2 the
+    comparison could not be made.
+    """
+    try:
+        before = load_report(baseline)
+        after = load_report(current)
+    except PromptSentinelError as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(EXIT_ERROR) from exc
+
+    result = diff_reports(before, after)
+    threshold = None if fail_on is FailOn.NEVER else Confidence(fail_on.value)
+
+    if json_output:
+        typer.echo(diff_json(result))
+    else:
+        typer.echo(diff_text(result, fail_on=threshold))
+
+    if threshold is None:
+        raise typer.Exit(EXIT_OK)
+    raise typer.Exit(EXIT_FINDINGS if result.new_at_or_above(threshold) else EXIT_OK)
 
 
 @app.command()

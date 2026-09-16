@@ -433,3 +433,77 @@ class TestApiKeyWithTargetFile:
         path.write_text("[1, 2, 3]")
         result = scan(str(path))
         assert result.exit_code == EXIT_ERROR
+
+
+class TestDiffCommand:
+    """The CI form: fail on new findings, stay quiet about known ones."""
+
+    @pytest.fixture
+    def reports(self, target_file, tmp_path):
+        def make(spec: dict, name: str) -> str:
+            out = tmp_path / name
+            scan(
+                target_file(spec),
+                "--category",
+                "system_prompt_extraction",
+                "--format",
+                "json",
+                "-o",
+                str(out),
+                "--fail-on",
+                "never",
+            )
+            return str(out)
+
+        narrow = make(
+            {
+                "kind": "mock",
+                "system_prompt": "You are ACME support.",
+                "leak_system_prompt_on": "translate|base64",
+            },
+            "before.json",
+        )
+        wide = make(
+            {
+                "kind": "mock",
+                "system_prompt": "You are ACME support.",
+                "leak_system_prompt_on": ".",
+            },
+            "after.json",
+        )
+        return narrow, wide
+
+    def test_a_regression_fails_the_gate(self, reports):
+        before, after = reports
+        result = runner.invoke(app, ["diff", before, after])
+        assert result.exit_code == EXIT_FINDINGS
+        assert "NEW (" in result.output
+        assert "gate fails" in result.output
+
+    def test_findings_that_were_fixed_pass_the_gate(self, reports):
+        before, after = reports
+        result = runner.invoke(app, ["diff", after, before])
+        assert result.exit_code == EXIT_OK
+        assert "FIXED (" in result.output
+
+    def test_an_unchanged_backlog_passes(self, reports):
+        _, after = reports
+        result = runner.invoke(app, ["diff", after, after])
+        assert result.exit_code == EXIT_OK
+        assert "No change in findings." in result.output
+
+    def test_fail_on_never_always_passes(self, reports):
+        before, after = reports
+        result = runner.invoke(app, ["diff", before, after, "--fail-on", "never"])
+        assert result.exit_code == EXIT_OK
+
+    def test_json_output_is_parseable(self, reports):
+        before, after = reports
+        payload = json.loads(runner.invoke(app, ["diff", before, after, "--json"]).output)
+        assert payload["summary"]["new"] >= 1
+        assert payload["same_target"] is True
+
+    def test_a_missing_report_is_an_error_not_a_pass(self, reports, tmp_path):
+        before, _ = reports
+        result = runner.invoke(app, ["diff", before, str(tmp_path / "nope.json")])
+        assert result.exit_code == EXIT_ERROR

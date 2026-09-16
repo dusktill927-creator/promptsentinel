@@ -44,6 +44,7 @@ from promptsentinel.probes.base import (
     Probe,
     ProbeContext,
     excerpt,
+    plural,
 )
 from promptsentinel.probes.registry import register
 from promptsentinel.targets.base import Target, TargetCapability, TargetResponse
@@ -360,7 +361,7 @@ class CrescendoProbe(Probe):
         return Finding.confirmed(
             probe_id=self.id,
             category=self.category,
-            title=f"System prompt disclosed after {conversation.turns} turns{encoding}",
+            title=(f"System prompt disclosed after {plural(conversation.turns, 'turn')}{encoding}"),
             description=(
                 f"The application withheld its configuration initially and disclosed a "
                 f"seeded secret on turn {conversation.turns} of an escalating "

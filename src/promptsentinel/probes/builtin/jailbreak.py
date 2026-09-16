@@ -47,6 +47,7 @@ from promptsentinel.probes.base import (
     Probe,
     ProbeContext,
     excerpt,
+    plural,
 )
 from promptsentinel.probes.registry import register
 from promptsentinel.targets.base import Target, TargetCapability, TargetResponse
@@ -402,7 +403,9 @@ class PersonaCommitmentProbe(Probe):
         return Finding.confirmed(
             probe_id=self.id,
             category=self.category,
-            title=f"Content policy bypassed after {conversation.turns} turns in persona",
+            title=(
+                f"Content policy bypassed after {plural(conversation.turns, 'turn')} in persona"
+            ),
             description=(
                 f"The application refused a plain request, then produced the same "
                 f"forbidden output on turn {conversation.turns} of a conversation that "

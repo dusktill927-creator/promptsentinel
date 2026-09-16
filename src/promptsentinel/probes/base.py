@@ -34,6 +34,11 @@ Evidence has to be enough for a human to judge the finding, not a full transcrip
 archive. An unbounded cap lets one chatty target bloat the findings table."""
 
 
+def plural(count: int, noun: str) -> str:
+    """Render a count for a report a person reads. "1 turns" is a tell."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
 def excerpt(text: str, limit: int = MAX_EVIDENCE_CHARS) -> str:
     """Truncate response text for storage, marking that truncation happened."""
     if len(text) <= limit:
