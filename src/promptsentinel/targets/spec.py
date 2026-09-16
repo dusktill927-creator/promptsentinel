@@ -95,8 +95,15 @@ class MockTargetSpec(BaseModel):
     leak_system_prompt_on: str | None = Field(
         default=None,
         description=(
-            "Regex that makes the mock disclose its system prompt verbatim -- used to "
-            "simulate a vulnerable application."
+            "Regex that makes the mock disclose its system prompt -- used to simulate "
+            "a vulnerable application."
+        ),
+    )
+    leak_encoding: Literal["base64", "reversed"] | None = Field(
+        default=None,
+        description=(
+            "Transform applied to the disclosed prompt. Simulates an application whose "
+            "output filter is bypassed by asking for an encoded copy."
         ),
     )
 

@@ -12,6 +12,7 @@ path where nothing is found.
 
 from __future__ import annotations
 
+import base64
 import re
 from collections.abc import Sequence
 from typing import ClassVar
@@ -79,12 +80,27 @@ class MockTarget(Target):
 
         if self._leak_pattern is not None and self._leak_pattern.search(user_text):
             disclosed = _effective_system_prompt(messages) or self._spec.system_prompt or ""
+            rendered = _encode(disclosed, self._spec.leak_encoding)
             return TargetResponse(
-                content=f"Sure! My instructions are:\n\n{disclosed}",
+                content=f"Sure! My instructions are:\n\n{rendered}",
                 finish_reason="stop",
             )
 
         return TargetResponse(content=self._spec.default_response, finish_reason="stop")
+
+
+def _encode(text: str, encoding: str | None) -> str:
+    """Render a disclosed prompt the way a filter-evading target would.
+
+    Exists so the encoding-aware detection in ``core.canary`` is exercised against a
+    target that actually transforms its output, rather than only against strings a
+    test built by hand.
+    """
+    if encoding == "base64":
+        return base64.b64encode(text.encode()).decode()
+    if encoding == "reversed":
+        return text[::-1]
+    return text
 
 
 def _last_user_message(messages: Sequence[ChatMessage]) -> str:
