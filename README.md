@@ -512,7 +512,8 @@ annotated reference implementation — read it first.
 
 Run against `openai/gpt-oss-120b` (Groq) on 2026-09-16, configured as a support bot: a
 system prompt holding a secret, a retrieval pipeline, and three tools of which two were
-declared `restricted`.
+declared `restricted`. **One scan, one model, 20 of the 26 probes** — see
+[docs/EVIDENCE.md](docs/EVIDENCE.md) for exactly what has and has not met a real system.
 
 ```
 7 confirmed · 0 suspicious · 20 probes run · 0 errored
@@ -537,6 +538,10 @@ A scanner matching on the literal canary would have reported that application se
 > deliberately configured to be vulnerable. The claim here is that PromptSentinel
 > *detects and proves* this class of issue against a deployed configuration — which is
 > the point: the weakness is in the deployment, not the weights.
+>
+> The six newest probes — including everything multi-turn — have **never run against a
+> real model**, and the `suspicious` tier rests on uncalibrated heuristics.
+> [docs/EVIDENCE.md](docs/EVIDENCE.md) says which is which.
 
 ## Probe coverage
 

@@ -77,6 +77,13 @@ One change per commit, with a message that explains *why*. The existing history 
 style guide: several commits describe a wrong first attempt and why it failed, which is
 usually the most useful thing in them.
 
+## Evidence
+
+[docs/EVIDENCE.md](docs/EVIDENCE.md) records what has been verified against real systems
+and what has only ever seen a mock. If you run a scan against a real target, add it —
+including scans that found nothing. The value of that file is that its claims stay
+proportional to what has actually been run, which only holds if it is kept current.
+
 ## Scope
 
 PromptSentinel tests applications you own or are authorized to test. Contributions that
