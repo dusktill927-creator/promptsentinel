@@ -29,6 +29,26 @@ what counts as proof, is called out explicitly in every release that makes one.
 - `HttpTargetSpec.tool_call_filter` — restrict tool-call parsing to entries
   matching given key/value pairs, e.g. `{"type": "tool_use"}`.
 
+### Changed
+
+- **The README's worked examples are now reproducible.** Both printed output a
+  reader would not get: the quick start claimed 12 confirmed / 4 suspicious over
+  25 probes where the demo app actually yields 13 / 0 over 27, and the CLI
+  example showed a confirmed finding against a default mock target that produces
+  none. Both were re-run and pasted from real output. The first also understated
+  the tool, advertising a suspicious tier that the noise-suppression work had
+  already driven to zero.
+- **Positioning rewritten against the tools it is actually compared to.** The
+  previous framing — that garak and PyRIT "mostly test models" — overstated the
+  distinction and did not mention promptfoo at all. garak's REST generator and
+  promptfoo's HTTP provider both reach bespoke endpoints. The real difference is
+  narrower and now stated as such: garak's REST template substitutes `$INPUT` and
+  `$KEY`, with no slot for a system prompt, a retrieved document or a tool
+  definition, so it cannot seed the deployment the way the proof tier requires.
+  Scope is stated plainly rather than implied: garak has many times the probe
+  count, and this is a demonstration of an evidentiary standard, not a claim to
+  coverage.
+
 ## [0.2.0] - 2026-09-16
 
 The first release driven by evidence from real models rather than from mocks.

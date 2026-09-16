@@ -190,7 +190,8 @@ It also produced two pieces of shared machinery the later categories inherit:
   `indirect_injection.delayed_trigger` and `excessive_agency.chained_escalation` fill the
   gaps the single-shot families could not reach: data leaving through a URL rather than
   the reply, an injection outliving the retrieval that delivered it, and a privileged
-  request that arrives second rather than cold. 26 probes across five categories.
+  request that arrives second rather than cold. 27 probes across five categories,
+  plus one diagnostic probe that is off by default.
 
 - Remaining: more techniques per category, plus Anthropic-native and LangServe adapters
   if demand appears -- both are now conveniences rather than gaps, since the generic
