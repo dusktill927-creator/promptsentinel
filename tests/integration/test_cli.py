@@ -331,3 +331,105 @@ class TestHtmlOutput:
         )
         assert f"wrote html report to {out}" in result.output
         assert out.read_text().startswith("<!doctype html>")
+
+
+class TestApiKeyWithTargetFile:
+    """Regression: --api-key-env was silently ignored alongside --target.
+
+    Found by a real scan against a hosted model, where every probe failed
+    authentication and the run wasted five minutes. A flag that cannot be applied must
+    be an error, never a shrug.
+    """
+
+    def test_the_key_reaches_a_file_based_target(self, target_file, monkeypatch):
+        monkeypatch.setenv("PS_KEY", "sk-from-env")
+        from pathlib import Path
+
+        from promptsentinel.cli.main import _load_target
+
+        spec = _load_target(
+            Path(
+                target_file(
+                    {"kind": "openai_compatible", "base_url": "https://x.test/v1", "model": "m"}
+                )
+            ),
+            None,
+            None,
+            "PS_KEY",
+            None,
+        )
+        assert spec.api_key is not None
+        assert spec.api_key.get_secret_value() == "sk-from-env"
+
+    def test_the_flag_overrides_a_key_in_the_file(self, target_file, monkeypatch):
+        """The point of the flag is that the environment is authoritative."""
+        monkeypatch.setenv("PS_KEY", "sk-from-env")
+        from pathlib import Path
+
+        from promptsentinel.cli.main import _load_target
+
+        spec = _load_target(
+            Path(
+                target_file(
+                    {
+                        "kind": "openai_compatible",
+                        "base_url": "https://x.test/v1",
+                        "model": "m",
+                        "api_key": "sk-from-file",
+                    }
+                )
+            ),
+            None,
+            None,
+            "PS_KEY",
+            None,
+        )
+        assert spec.api_key.get_secret_value() == "sk-from-env"
+
+    def test_a_key_for_a_mock_target_is_an_error(self, target_file, monkeypatch):
+        """Silently ignoring it is what caused the original bug."""
+        monkeypatch.setenv("PS_KEY", "sk-from-env")
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "-t",
+                target_file({"kind": "mock"}),
+                "--api-key-env",
+                "PS_KEY",
+                "--attested-by",
+                "t",
+                "--attest",
+                REQUIRED_ATTESTATION,
+                "--no-input",
+            ],
+        )
+        assert result.exit_code != EXIT_OK
+        assert "meaningless for a mock target" in result.output
+
+    def test_an_empty_key_variable_is_still_rejected_with_a_file(self, target_file, monkeypatch):
+        monkeypatch.delenv("PS_MISSING", raising=False)
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "-t",
+                target_file(
+                    {"kind": "openai_compatible", "base_url": "https://x.test/v1", "model": "m"}
+                ),
+                "--api-key-env",
+                "PS_MISSING",
+                "--attested-by",
+                "t",
+                "--attest",
+                REQUIRED_ATTESTATION,
+                "--no-input",
+            ],
+        )
+        assert result.exit_code != EXIT_OK
+
+    def test_a_target_file_that_is_not_an_object_is_rejected(self, tmp_path):
+        path = tmp_path / "bad.json"
+        path.write_text("[1, 2, 3]")
+        result = scan(str(path))
+        assert result.exit_code == EXIT_ERROR

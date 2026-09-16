@@ -84,6 +84,15 @@ def _err(message: str) -> None:
     typer.secho(message, fg=typer.colors.RED, err=True)
 
 
+def _api_key(api_key_env: str | None) -> str | None:
+    if api_key_env is None:
+        return None
+    key = os.environ.get(api_key_env)
+    if not key:
+        raise typer.BadParameter(f"environment variable {api_key_env} is empty")
+    return key
+
+
 def _load_target(
     target_file: Path | None,
     base_url: str | None,
@@ -96,27 +105,38 @@ def _load_target(
     A file is the primary path because a realistic target -- retrieval templates, tool
     declarations with their restricted flags -- does not fit on a command line, and it
     is the same JSON the API accepts, so a spec can move between the two unchanged.
+
+    ``--api-key-env`` applies to both paths. Combining it with a target file is the
+    *intended* usage, not an edge case: it is how the credential stays out of a file
+    that gets committed. An earlier version read it only in the flags branch and
+    ignored it silently with a file, which produced a scan where every probe failed
+    authentication -- so a key that cannot be applied is now an error, never a shrug.
     """
+    key = _api_key(api_key_env)
+
     if target_file is not None:
         try:
             raw = json.loads(target_file.read_text())
         except (OSError, ValueError) as exc:
             raise typer.BadParameter(f"could not read target file: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise typer.BadParameter("target file must contain a JSON object")
+
         kind = raw.get("kind", "openai_compatible")
         if kind == "mock":
+            if key is not None:
+                raise typer.BadParameter("--api-key-env is meaningless for a mock target")
             return MockTargetSpec.model_validate(raw)
+        if key is not None:
+            # The flag wins over anything in the file: the whole point is that the
+            # credential lives in the environment rather than on disk.
+            raw = {**raw, "api_key": key}
         return OpenAICompatibleTargetSpec.model_validate(raw)
 
     if not base_url or not model:
         raise typer.BadParameter("supply --target FILE, or both --base-url and --model")
-
-    api_key = None
-    if api_key_env:
-        api_key = os.environ.get(api_key_env)
-        if not api_key:
-            raise typer.BadParameter(f"environment variable {api_key_env} is empty")
     return OpenAICompatibleTargetSpec(
-        base_url=base_url, model=model, api_key=api_key, system_prompt=system_prompt
+        base_url=base_url, model=model, api_key=key, system_prompt=system_prompt
     )
 
 
