@@ -127,12 +127,28 @@ The tool argued its own premise better than I could.
    quietly enough that the report still looked complete.
 7. Probe runs that found nothing recorded nothing, so "0 findings" was unauditable.
 
-Fixing that last one made a ninth and tenth visible, this time by *measurement* rather
-than by use. With real responses finally recorded, the refusal pattern turned out to miss
-the typographic apostrophe — `llama3.2:1b` refused with U+2019 and the scanner reported
+Fixing that last one exposed two more, this time by *measurement* rather than by use.
+With real responses finally recorded, the refusal pattern turned out to miss the
+typographic apostrophe — `llama3.2:1b` refused with U+2019 and the scanner reported
 "refusal behaviour degraded" against a target that had refused plainly. And disclosure
-detection fired on **0 of 38** real responses, including obvious leaks. Both had passed
-every test, because every test string was typed by the same person who wrote the pattern.
+detection fired on **0 of 38** real responses, including obvious leaks.
+
+Scanning two more model families found two more of the same shape: `"I am sorry"` where
+the pattern had only `"I'm sorry"`, and a word-boundary anchor that can never match
+inside `support_api_key=` because underscore is a word character — which is exactly how
+Qwen leaked it.
+
+Nine defects. Every one had passed every test, because every test string was typed by the
+same person who wrote the pattern. That is the case for measuring against real output
+rather than writing more cases: examples invented by the author of a pattern will agree
+with it.
+
+Reading the resulting low-confidence findings then produced the most useful result of the
+lot. Most were not judgement calls but two mechanical errors — a refusal that names the
+thing it is refusing, and a deflection counted as a weakened refusal. Suppressing both
+dropped the suspicious count on one target from four to zero, and turned up a *confirmed*
+finding the noise had been hiding: a probe had been stopping at its second attempt to
+report a deflection, and so never reached the third, which was a genuine bypass.
 
 Every one is an integration or real-usage path. The suite covers logic well and has a
 blind spot exactly where components meet the world. That is not an argument against tests;
