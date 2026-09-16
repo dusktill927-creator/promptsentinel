@@ -265,6 +265,38 @@ Against a real application, swap the target block:
 }
 ```
 
+### Targets that aren't OpenAI-shaped
+
+Plenty of real deployments sit behind a bespoke endpoint. Describe yours instead:
+
+```json
+{
+  "kind": "http",
+  "url": "https://your-app.internal/api/chat",
+  "api_key_header": "X-Api-Key",
+  "api_key_prefix": "",
+  "request_template": {
+    "question": "{{prompt}}",
+    "system":   "{{system}}",
+    "context":  "{{documents}}",
+    "tenant":   "acme"
+  },
+  "response_path": "data.answer",
+  "tool_calls_path": "data.actions"
+}
+```
+
+Placeholders: `{{prompt}}` the latest user message, `{{history}}` the exchange as a
+list of `{role, content}`, `{{system}}` the system prompt, `{{documents}}` the rendered
+retrieved context. A string that is *exactly* a placeholder becomes the typed value, so
+`{{history}}` yields a real JSON list rather than a stringified one.
+
+**The template declares the target's capabilities.** A template that never interpolates
+`{{system}}` has nowhere to seed a canary, so system-prompt probes report `skipped` with
+a reason instead of running blind against a discarded seed. Same for `{{documents}}` and
+`tool_calls_path`. Capability follows configuration here exactly as it does for the
+OpenAI adapter.
+
 Supplying your real system prompt is what makes the results meaningful: probes seed
 canaries *into* it rather than replacing it, so the app is tested in the configuration
 it actually runs in.

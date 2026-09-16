@@ -175,8 +175,20 @@ It also produced two pieces of shared machinery the later categories inherit:
   vanished because its probe stopped running has not been fixed, and a diff that only
   counted findings would be quietly reassuring at exactly the wrong moment.
 
-- Remaining: more techniques per category, and additional target adapters
-  (Anthropic-native, LangServe, generic HTTP).
+- **Generic HTTP target** ✅ — an operator describes their own endpoint with a request
+  template and JSON response paths, so an application that answers
+  `{"data": {"answer": ...}}` is testable without the tool guessing at dialects. This
+  was the limit on who could use PromptSentinel at all.
+
+  Its neatest property is that the request template *declares the capabilities*: a
+  template that never interpolates `{{system}}` has nowhere to hold a canary, so probes
+  needing one are skipped rather than run against a seed the target discards. Verified
+  end to end -- an unmodified `system_prompt.direct_request` confirms a leak against a
+  deliberately un-OpenAI-shaped app, which is the plugin abstraction earning its keep.
+
+- Remaining: more techniques per category, plus Anthropic-native and LangServe adapters
+  if demand appears -- both are now conveniences rather than gaps, since the generic
+  HTTP target can describe either.
 
 ## Phase 3 complete
 

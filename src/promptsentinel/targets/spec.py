@@ -12,7 +12,7 @@ plus one line in :data:`TargetSpec` -- FastAPI then documents it in OpenAPI for 
 from __future__ import annotations
 
 import json
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, TypeAdapter, field_validator
 
@@ -74,6 +74,88 @@ class OpenAICompatibleTargetSpec(BaseModel):
         if not normalized.startswith(("http://", "https://")):
             raise ValueError("base_url must be an http:// or https:// URL")
         return normalized
+
+
+class HttpTargetSpec(BaseModel):
+    """Any HTTP chat application, described by the operator.
+
+    The OpenAI-compatible adapter covers a lot, but plenty of real deployments sit
+    behind a bespoke endpoint that takes ``{"question": ...}`` and returns
+    ``{"data": {"answer": ...}}``. Without this, those applications simply could not be
+    tested -- which is a strange gap in a tool whose thesis is that the deployment is
+    what matters.
+
+    The operator supplies a request template with placeholders and JSON paths for
+    reading the reply. The placeholders they use also *declare the target's
+    capabilities*: a template that never references ``{{system}}`` cannot have a system
+    prompt seeded into it, so probes that need one are skipped rather than run blind.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["http"] = "http"
+    url: str = Field(description="Full URL of the chat endpoint.")
+    method: Literal["POST", "PUT"] = "POST"
+    headers: dict[str, str] = Field(default_factory=dict)
+
+    api_key: SecretStr | None = None
+    api_key_header: str = Field(
+        default="Authorization", description="Header carrying the credential."
+    )
+    api_key_prefix: str = Field(
+        default="Bearer ", description="Prefix before the key, e.g. 'Bearer '. May be empty."
+    )
+
+    request_template: dict[str, Any] = Field(
+        description=(
+            "JSON body to send. Placeholders are substituted anywhere they appear: "
+            "{{prompt}} the latest user message, {{history}} the full exchange as a "
+            "list of {role, content}, {{system}} the system prompt, {{documents}} the "
+            "rendered retrieved context."
+        ),
+        examples=[{"question": "{{prompt}}", "session": "promptsentinel"}],
+    )
+    response_path: str = Field(
+        description="Dotted path to the reply text, e.g. 'data.answer' or 'choices.0.text'.",
+        examples=["data.answer"],
+    )
+    tool_calls_path: str | None = Field(
+        default=None, description="Dotted path to a list of tool calls, if the app returns them."
+    )
+    tool_name_field: str = "name"
+    tool_arguments_field: str = "arguments"
+
+    document_template: str = Field(
+        default="[{index}] {title} ({source})\n{content}",
+        description="How each retrieved document renders into {{documents}}.",
+    )
+    system_prompt: str | None = Field(
+        default=None, description="The application's own system prompt, if you have it."
+    )
+    timeout_s: float = Field(default=30.0, gt=0, le=300)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("url must be an http:// or https:// URL")
+        return normalized
+
+    @field_validator("request_template")
+    @classmethod
+    def _must_send_the_prompt(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """A template that never sends the prompt cannot test anything.
+
+        Caught here rather than surfacing as a scan where every probe mysteriously
+        finds nothing.
+        """
+        if "{{prompt}}" not in json.dumps(value) and "{{history}}" not in json.dumps(value):
+            raise ValueError(
+                "request_template must reference {{prompt}} or {{history}}, "
+                "or the target never receives the probe's message"
+            )
+        return value
 
 
 class RetrievalConfig(BaseModel):
@@ -194,7 +276,7 @@ class MockTargetSpec(BaseModel):
 
 
 TargetSpec = Annotated[
-    OpenAICompatibleTargetSpec | MockTargetSpec,
+    OpenAICompatibleTargetSpec | HttpTargetSpec | MockTargetSpec,
     Field(discriminator="kind"),
 ]
 """The union accepted by the API. New target kinds are added here."""

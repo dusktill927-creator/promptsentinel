@@ -8,10 +8,16 @@ from __future__ import annotations
 
 from promptsentinel.core.errors import ConfigurationError
 from promptsentinel.targets.base import Target
+from promptsentinel.targets.http import HttpTarget
 from promptsentinel.targets.mock import MockTarget
 from promptsentinel.targets.openai_compatible import OpenAICompatibleTarget
 from promptsentinel.targets.rate_limit import RateLimit, RateLimitedTarget
-from promptsentinel.targets.spec import MockTargetSpec, OpenAICompatibleTargetSpec, TargetSpec
+from promptsentinel.targets.spec import (
+    HttpTargetSpec,
+    MockTargetSpec,
+    OpenAICompatibleTargetSpec,
+    TargetSpec,
+)
 
 
 def build_target(
@@ -35,6 +41,8 @@ def _adapter(spec: TargetSpec, *, allow_mock: bool) -> Target:
     match spec:
         case OpenAICompatibleTargetSpec():
             return OpenAICompatibleTarget(spec)
+        case HttpTargetSpec():
+            return HttpTarget(spec)
         case MockTargetSpec():
             if not allow_mock:
                 raise ConfigurationError("mock targets are disabled in this deployment")
