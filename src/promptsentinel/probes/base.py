@@ -134,11 +134,9 @@ class Conversation:
         system: ChatMessage,
         *,
         tools: Sequence[ToolSpec] | None = None,
-        documents: Sequence[Document] | None = None,
     ):
         self._target = target
         self._tools = tools
-        self._documents = documents
         self.messages: list[ChatMessage] = [system]
         self.replies: list[TargetResponse] = []
 
@@ -147,12 +145,18 @@ class Conversation:
         """User turns sent so far."""
         return len(self.replies)
 
-    async def say(self, text: str) -> TargetResponse:
-        """Send one more user turn, carrying the whole conversation so far."""
+    async def say(
+        self, text: str, *, documents: Sequence[Document] | None = None
+    ) -> TargetResponse:
+        """Send one more user turn, carrying the whole conversation so far.
+
+        ``documents`` belong to a turn rather than to the conversation, because that is
+        how retrieval actually behaves: a document is fetched for one question and is
+        not attached to the next. Probes that test whether an injection outlives its
+        retrieval depend on being able to express exactly that.
+        """
         self.messages.append(ChatMessage.user(text))
-        response = await self._target.send(
-            self.messages, tools=self._tools, documents=self._documents
-        )
+        response = await self._target.send(self.messages, tools=self._tools, documents=documents)
         # The assistant's own words go back into the history: without them the model
         # has no prior position to be held to, and the escalation cannot bite.
         self.messages.append(ChatMessage(role="assistant", content=response.content))

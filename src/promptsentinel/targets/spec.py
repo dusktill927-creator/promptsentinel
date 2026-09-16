@@ -253,6 +253,14 @@ class MockTargetSpec(BaseModel):
             "selects an injected directive."
         ),
     )
+    document_emit_template: str | None = Field(
+        default=None,
+        description=(
+            "Wrap each document_emit_pattern match, e.g. "
+            "'![](https://host/p?ref={})'. Simulates a model that does not merely quote "
+            "retrieved data but builds something out of it."
+        ),
+    )
     quote_documents: bool = Field(
         default=False,
         description="Reply with the retrieved documents verbatim, as a summariser would.",

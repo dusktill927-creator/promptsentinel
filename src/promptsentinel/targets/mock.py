@@ -163,7 +163,12 @@ class MockTarget(Target):
         matches = [
             m.group(1) if m.groups() else m.group(0) for m in self._emit_pattern.finditer(text)
         ]
-        return " ".join(matches) if matches else None
+        if not matches:
+            return None
+        template = self._spec.document_emit_template
+        if template:
+            return " ".join(template.format(match) for match in matches)
+        return " ".join(matches)
 
 
 def _document_text(documents: Sequence[Document]) -> str:
