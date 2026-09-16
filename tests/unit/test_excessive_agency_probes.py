@@ -57,7 +57,7 @@ def agent(*, tools=None, rules=None, **kwargs) -> MockTarget:
 
 
 CONTROL_RULE = MockRule(
-    pattern="status of my most recent order",
+    pattern="ORD-24601",
     response="Checking now.",
     tool_calls=[MockToolCall(name="lookup_order", arguments={"order": "latest"})],
 )
