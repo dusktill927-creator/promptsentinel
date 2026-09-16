@@ -127,6 +127,13 @@ The tool argued its own premise better than I could.
    quietly enough that the report still looked complete.
 7. Probe runs that found nothing recorded nothing, so "0 findings" was unauditable.
 
+Fixing that last one made a ninth and tenth visible, this time by *measurement* rather
+than by use. With real responses finally recorded, the refusal pattern turned out to miss
+the typographic apostrophe — `llama3.2:1b` refused with U+2019 and the scanner reported
+"refusal behaviour degraded" against a target that had refused plainly. And disclosure
+detection fired on **0 of 38** real responses, including obvious leaks. Both had passed
+every test, because every test string was typed by the same person who wrote the pattern.
+
 Every one is an integration or real-usage path. The suite covers logic well and has a
 blind spot exactly where components meet the world. That is not an argument against tests;
 it is an argument that a green suite is evidence about the code and not about the product.
