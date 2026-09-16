@@ -375,9 +375,13 @@ def worker() -> None:
     multiplies load on someone's production application rather than draining the queue
     faster.
     """
-    from arq.worker import run_worker
+    try:
+        from arq.worker import run_worker
 
-    from promptsentinel.jobs.arq_worker import WorkerSettings, _redis_settings
+        from promptsentinel.jobs.arq_worker import WorkerSettings, _redis_settings
+    except ImportError as exc:
+        _err('the worker needs the distributed extra: pip install "promptsentinel[redis]"')
+        raise typer.Exit(EXIT_ERROR) from exc
 
     settings = get_settings()
     if not settings.distributed:

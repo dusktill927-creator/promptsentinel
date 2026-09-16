@@ -21,11 +21,9 @@ from promptsentinel.config import Settings, get_settings
 from promptsentinel.core.errors import AuthorizationError, ConfigurationError, TargetError
 from promptsentinel.db.session import Database
 from promptsentinel.jobs.queue import InProcessJobQueue, JobQueue
-from promptsentinel.jobs.redis_queue import RedisJobQueue
 from promptsentinel.jobs.worker import ScanWorker
 from promptsentinel.probes.registry import REGISTRY, ProbeRegistry
 from promptsentinel.secrets import InMemorySecretStore, SecretStore
-from promptsentinel.secrets.redis_store import RedisSecretStore
 
 logger = logging.getLogger(__name__)
 
@@ -135,15 +133,36 @@ def _build_backends(
     """
     if settings.distributed:
         assert settings.redis_url is not None
-        store: SecretStore = override or RedisSecretStore(settings.redis_url)
+        queue, secret_store = _redis_backends(settings.redis_url)
+        store: SecretStore = override or secret_store
         logger.info("distributed mode: scans run in a separate worker process")
-        return store, RedisJobQueue(settings.redis_url)
+        return store, queue
 
     store = override or InMemorySecretStore()
     scan_worker = ScanWorker(database, settings, store, registry=registry)
     return store, InProcessJobQueue(
         scan_worker.execute, max_concurrent=settings.max_concurrent_scans
     )
+
+
+def _redis_backends(url: str) -> tuple[JobQueue, SecretStore]:
+    """Import the Redis backends only when they are actually going to be used.
+
+    Imported at module scope they would make ``arq`` and ``redis`` mandatory, which
+    defeats the point of declaring them as extras -- ``pip install promptsentinel``
+    followed by starting the API would fail on an import for a mode the operator never
+    asked for. CI caught exactly that: the package could not be imported at all without
+    the distributed extra installed.
+    """
+    try:
+        from promptsentinel.jobs.redis_queue import RedisJobQueue
+        from promptsentinel.secrets.redis_store import RedisSecretStore
+    except ImportError as exc:
+        raise ConfigurationError(
+            "PROMPTSENTINEL_REDIS_URL is set but the distributed backend is not "
+            'installed. Run: pip install "promptsentinel[redis]"'
+        ) from exc
+    return RedisJobQueue(url), RedisSecretStore(url)
 
 
 def _check_authentication(settings: Settings) -> None:

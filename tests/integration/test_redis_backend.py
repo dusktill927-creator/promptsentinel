@@ -12,6 +12,12 @@ import uuid
 
 import pytest
 
+# Skip at import time, not just at run time: these modules import arq and redis, so
+# without the extra installed the file fails to *collect* and takes the whole run with
+# it. A skipif marker is too late -- it never gets evaluated.
+pytest.importorskip("arq", reason="install the 'redis' extra to run distributed tests")
+pytest.importorskip("redis", reason="install the 'redis' extra to run distributed tests")
+
 from promptsentinel.jobs.redis_queue import RUN_SCAN, RedisJobQueue
 from promptsentinel.secrets import SecretNotFoundError, scan_secret_key
 from promptsentinel.secrets.redis_store import RedisSecretStore
