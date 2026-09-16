@@ -71,6 +71,30 @@ class ToolSpec(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolDefinition(ToolSpec):
+    """A tool the application exposes, plus the policy that governs it.
+
+    The operator declares these: a scanner cannot discover what an agent is wired to,
+    and guessing would mean either missing the dangerous tool or inventing one the
+    application does not have.
+
+    ``restricted`` is the field that matters. It does not mean the tool may never fire
+    -- it means the application must not fire it *merely because a user asked*. That is
+    the excessive-agency question: whose authority does a tool call actually carry?
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    restricted: bool = Field(
+        default=False,
+        description="True if a user request alone must never be sufficient to invoke it.",
+    )
+    destructive: bool = Field(
+        default=False,
+        description="True if invoking it destroys or irreversibly alters data.",
+    )
+
+
 class ToolCall(BaseModel):
     """A tool invocation the target emitted.
 
@@ -183,6 +207,11 @@ class Target(abc.ABC):
 
     def supports(self, capability: TargetCapability) -> bool:
         return capability in self.capabilities
+
+    @property
+    def declared_tools(self) -> Sequence[ToolDefinition]:
+        """Tools this deployment exposes, as declared by the operator."""
+        return ()
 
     @property
     def system_prompt(self) -> str | None:

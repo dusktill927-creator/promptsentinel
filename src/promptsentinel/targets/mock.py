@@ -24,6 +24,7 @@ from promptsentinel.targets.base import (
     TargetCapability,
     TargetResponse,
     ToolCall,
+    ToolDefinition,
     ToolSpec,
 )
 from promptsentinel.targets.spec import MockRule, MockTargetSpec
@@ -34,25 +35,31 @@ class MockTarget(Target):
 
     kind: ClassVar[str] = "mock"
     default_capabilities: ClassVar[frozenset[TargetCapability]] = frozenset(
-        {
-            TargetCapability.CHAT,
-            TargetCapability.SYSTEM_PROMPT_CONTROL,
-            TargetCapability.TOOL_CALLING,
-        }
+        {TargetCapability.CHAT, TargetCapability.SYSTEM_PROMPT_CONTROL}
     )
 
     @property
     def capabilities(self) -> frozenset[TargetCapability]:
-        """Mirrors the real adapters: a RAG target only when retrieval is configured."""
-        if self._spec.retrieval is None:
-            return self.default_capabilities
-        return self.default_capabilities | {TargetCapability.DOCUMENT_INJECTION}
+        """Mirrors the real adapters: capability follows configuration."""
+        extra = set()
+        if self._spec.retrieval is not None:
+            extra.add(TargetCapability.DOCUMENT_INJECTION)
+        if self._spec.tools:
+            extra.add(TargetCapability.TOOL_CALLING)
+        return self.default_capabilities | extra
+
+    @property
+    def declared_tools(self) -> Sequence[ToolDefinition]:
+        return self._spec.tools
 
     def __init__(self, spec: MockTargetSpec):
         self._spec = spec
         self._rules = [(re.compile(r.pattern, re.I), r) for r in spec.rules]
         self._leak_pattern = (
             re.compile(spec.leak_system_prompt_on, re.I) if spec.leak_system_prompt_on else None
+        )
+        self._document_tool_pattern = (
+            re.compile(spec.document_tool_pattern, re.I) if spec.document_tool_pattern else None
         )
         self._emit_pattern = (
             re.compile(spec.document_emit_pattern) if spec.document_emit_pattern else None
@@ -88,6 +95,10 @@ class MockTarget(Target):
     ) -> TargetResponse:
         # Document-driven behaviour comes first: a RAG target's reply is shaped by what
         # it retrieved, whatever static rules also match.
+        if document_call := self._tool_call_from_documents(documents):
+            return TargetResponse(
+                content="", tool_calls=[document_call], finish_reason="tool_calls"
+            )
         if document_reply := self._reply_from_documents(documents):
             return TargetResponse(content=document_reply, finish_reason="stop")
 
@@ -110,6 +121,16 @@ class MockTarget(Target):
             )
 
         return TargetResponse(content=self._spec.default_response, finish_reason="stop")
+
+    def _tool_call_from_documents(self, documents: Sequence[Document]) -> ToolCall | None:
+        """Simulate an agent that treats retrieved text as an instruction to act."""
+        if not documents or self._document_tool_pattern is None:
+            return None
+        match = self._document_tool_pattern.search(_document_text(documents))
+        if match is None:
+            return None
+        reference = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
+        return ToolCall(name=match.group(1), arguments={"reference": reference})
 
     def _reply_from_documents(self, documents: Sequence[Document]) -> str | None:
         """Simulate a model acting on retrieved content.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from promptsentinel.core.errors import ConfigurationError
-from promptsentinel.targets.base import TargetCapability
+from promptsentinel.targets.base import TargetCapability, ToolDefinition
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.mock import MockTarget
 from promptsentinel.targets.openai_compatible import OpenAICompatibleTarget
@@ -43,11 +43,24 @@ class TestUnknownKind:
 
 
 class TestCapabilities:
-    def test_openai_target_advertises_the_capabilities_probes_need(self):
+    def test_a_bare_target_is_chat_and_system_prompt_only(self):
+        """Retrieval and tools are declared, never assumed."""
         spec = OpenAICompatibleTargetSpec(base_url="https://x.test/v1", model="m")
         target = build_target(spec, allow_mock=False)
+        assert target.supports(TargetCapability.CHAT)
         assert target.supports(TargetCapability.SYSTEM_PROMPT_CONTROL)
+        assert not target.supports(TargetCapability.TOOL_CALLING)
+        assert not target.supports(TargetCapability.DOCUMENT_INJECTION)
+
+    def test_declaring_tools_enables_tool_calling(self):
+        spec = OpenAICompatibleTargetSpec(
+            base_url="https://x.test/v1",
+            model="m",
+            tools=[ToolDefinition(name="refund", description="Issue a refund")],
+        )
+        target = build_target(spec, allow_mock=False)
         assert target.supports(TargetCapability.TOOL_CALLING)
+        assert [t.name for t in target.declared_tools] == ["refund"]
 
     def test_system_prompt_is_exposed_to_probes(self):
         spec = OpenAICompatibleTargetSpec(

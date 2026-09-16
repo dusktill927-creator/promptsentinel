@@ -16,6 +16,7 @@ from promptsentinel.targets.base import (
     TargetCapability,
     TargetResponse,
     ToolCall,
+    ToolDefinition,
     ToolSpec,
 )
 from promptsentinel.targets.spec import OpenAICompatibleTargetSpec
@@ -31,23 +32,29 @@ class OpenAICompatibleTarget(Target):
 
     kind: ClassVar[str] = "openai_compatible"
     default_capabilities: ClassVar[frozenset[TargetCapability]] = frozenset(
-        {
-            TargetCapability.CHAT,
-            TargetCapability.SYSTEM_PROMPT_CONTROL,
-            TargetCapability.TOOL_CALLING,
-        }
+        {TargetCapability.CHAT, TargetCapability.SYSTEM_PROMPT_CONTROL}
     )
 
     @property
     def capabilities(self) -> frozenset[TargetCapability]:
-        """DOCUMENT_INJECTION only when the operator described their retrieval setup.
+        """Configuration decides, not type.
 
-        Without that description we would be guessing where retrieved text lands, and a
-        probe that guesses wrong reports a clean result for an untested attack path.
+        DOCUMENT_INJECTION needs the operator's retrieval description, or we would be
+        guessing where retrieved text lands. TOOL_CALLING needs their tool declarations,
+        or there is nothing to offer the model and nothing to recognise if it answers.
+        In both cases a probe that guesses wrong reports a clean result for an attack
+        path it never exercised, which is the outcome worth engineering against.
         """
-        if self._spec.retrieval is None:
-            return self.default_capabilities
-        return self.default_capabilities | {TargetCapability.DOCUMENT_INJECTION}
+        extra = set()
+        if self._spec.retrieval is not None:
+            extra.add(TargetCapability.DOCUMENT_INJECTION)
+        if self._spec.tools:
+            extra.add(TargetCapability.TOOL_CALLING)
+        return self.default_capabilities | extra
+
+    @property
+    def declared_tools(self) -> Sequence[ToolDefinition]:
+        return self._spec.tools
 
     def __init__(
         self, spec: OpenAICompatibleTargetSpec, *, client: httpx.AsyncClient | None = None

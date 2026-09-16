@@ -55,10 +55,11 @@ class TestCapabilityGating:
         target = openai_target(lambda r: httpx.Response(200), retrieval=RetrievalConfig())
         assert target.supports(TargetCapability.DOCUMENT_INJECTION)
 
-    def test_other_capabilities_are_unaffected(self):
-        target = openai_target(lambda r: httpx.Response(200))
-        assert target.supports(TargetCapability.TOOL_CALLING)
+    def test_retrieval_config_does_not_imply_tool_calling(self):
+        """Each capability is gated on its own declaration, independently."""
+        target = openai_target(lambda r: httpx.Response(200), retrieval=RetrievalConfig())
         assert target.supports(TargetCapability.SYSTEM_PROMPT_CONTROL)
+        assert not target.supports(TargetCapability.TOOL_CALLING)
 
     def test_the_mock_mirrors_the_same_rule(self):
         assert not MockTarget(MockTargetSpec()).supports(TargetCapability.DOCUMENT_INJECTION)

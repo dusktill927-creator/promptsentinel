@@ -15,6 +15,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from promptsentinel.targets.base import ToolDefinition
+
 
 class OpenAICompatibleTargetSpec(BaseModel):
     """Any endpoint speaking the OpenAI ``/chat/completions`` dialect.
@@ -53,6 +55,14 @@ class OpenAICompatibleTargetSpec(BaseModel):
             "Describe how your application injects retrieved documents. Supplying this "
             "marks the target as a RAG deployment and enables indirect-injection "
             "probes; omitting it makes them report SKIPPED rather than a clean pass."
+        ),
+    )
+    tools: list[ToolDefinition] = Field(
+        default_factory=list,
+        description=(
+            "Tools your application exposes, each marked restricted or not. Supplying "
+            "these enables excessive-agency probes; omitting them makes those probes "
+            "report SKIPPED rather than a clean pass."
         ),
     )
 
@@ -141,6 +151,15 @@ class MockTargetSpec(BaseModel):
     )
     retrieval: RetrievalConfig | None = Field(
         default=None, description="Present to make the mock behave as a RAG target."
+    )
+    tools: list[ToolDefinition] = Field(default_factory=list)
+    document_tool_pattern: str | None = Field(
+        default=None,
+        description=(
+            "Regex over retrieved document text with groups (tool, reference); a match "
+            "makes the mock emit that tool call. Simulates an agent taking orders from "
+            "its own retrieval context."
+        ),
     )
     document_emit_pattern: str | None = Field(
         default=None,
