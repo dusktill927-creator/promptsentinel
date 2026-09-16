@@ -11,9 +11,10 @@ plus one line in :data:`TargetSpec` -- FastAPI then documents it in OpenAPI for 
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, TypeAdapter, field_validator
 
 from promptsentinel.targets.base import ToolDefinition
 
@@ -188,3 +189,33 @@ TargetSpec = Annotated[
     Field(discriminator="kind"),
 ]
 """The union accepted by the API. New target kinds are added here."""
+
+
+def serialize_with_secrets(spec: TargetSpec) -> str:
+    """Serialize a spec with its credentials intact, for the secret store.
+
+    ``model_dump_json`` deliberately redacts ``SecretStr``, which is what protects the
+    database and every report. This is the one place that must not redact, so it walks
+    the dumped structure and reveals secrets explicitly rather than turning redaction
+    off globally. Any ``SecretStr`` added to any spec in future is handled without a
+    change here -- and, importantly, without being silently dropped.
+    """
+    return json.dumps(_reveal(spec.model_dump(mode="python")))
+
+
+def deserialize_spec(raw: str) -> TargetSpec:
+    """Rebuild a spec from :func:`serialize_with_secrets`, validating as it goes."""
+    return _SPEC_ADAPTER.validate_python(json.loads(raw))
+
+
+def _reveal(value: object) -> object:
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    if isinstance(value, dict):
+        return {key: _reveal(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_reveal(item) for item in value]
+    return value
+
+
+_SPEC_ADAPTER: TypeAdapter[TargetSpec] = TypeAdapter(TargetSpec)

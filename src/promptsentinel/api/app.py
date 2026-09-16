@@ -23,6 +23,7 @@ from promptsentinel.db.session import Database
 from promptsentinel.jobs.queue import InProcessJobQueue
 from promptsentinel.jobs.worker import ScanWorker
 from promptsentinel.probes.registry import REGISTRY, ProbeRegistry
+from promptsentinel.secrets import InMemorySecretStore, SecretStore
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ def create_app(
     settings: Settings | None = None,
     database: Database | None = None,
     registry: ProbeRegistry = REGISTRY,
+    secret_store: SecretStore | None = None,
 ) -> FastAPI:
     """Build the application. Injected arguments exist so tests can substitute pieces."""
     resolved_settings = settings or get_settings()
@@ -70,7 +72,8 @@ def create_app(
             logger.info("auto_create_schema disabled; expecting `alembic upgrade head`")
         registry.discover()
 
-        worker = ScanWorker(db, resolved_settings, registry=registry)
+        store = secret_store or InMemorySecretStore()
+        worker = ScanWorker(db, resolved_settings, store, registry=registry)
         queue = InProcessJobQueue(
             worker.execute, max_concurrent=resolved_settings.max_concurrent_scans
         )
@@ -81,6 +84,7 @@ def create_app(
         app.state.database = db
         app.state.registry = registry
         app.state.queue = queue
+        app.state.secrets = store
         logger.info("promptsentinel %s ready with %d probes", __version__, len(registry.all()))
 
         try:
@@ -89,6 +93,7 @@ def create_app(
             # Let running scans finish before tearing down the engine, otherwise a
             # scan's final write lands on a disposed connection pool.
             await queue.aclose()
+            await store.aclose()
             if database is None:
                 await db.dispose()
 

@@ -18,8 +18,9 @@ from promptsentinel.db.session import Database
 from promptsentinel.engine.runner import ScanEngine, ScanPlan
 from promptsentinel.jobs import webhooks
 from promptsentinel.probes.registry import REGISTRY, ProbeRegistry
+from promptsentinel.secrets import SecretStore, scan_secret_key
 from promptsentinel.targets.factory import build_target
-from promptsentinel.targets.spec import TargetSpec
+from promptsentinel.targets.spec import deserialize_spec
 
 logger = logging.getLogger(__name__)
 
@@ -31,20 +32,23 @@ class ScanWorker:
         self,
         database: Database,
         settings: Settings,
+        secrets: SecretStore,
         *,
         registry: ProbeRegistry = REGISTRY,
     ):
         self._db = database
         self._settings = settings
+        self._secrets = secrets
         self._registry = registry
 
-    async def execute(self, scan_id: str, target_spec: TargetSpec) -> None:
+    async def execute(self, scan_id: str) -> None:
         """Run the scan and persist its outcome.
 
         Never raises for an expected failure: a scan that cannot run is a FAILED scan
         row with a reason, because a caller polling for status deserves an answer.
         """
         target = None
+        secret_key = scan_secret_key(scan_id)
         try:
             async with self._db.session() as session:
                 await ScanRepository(session).mark_running(scan_id)
@@ -56,6 +60,7 @@ class ScanWorker:
                     return
                 plan = self._build_plan(scan)
 
+            target_spec = deserialize_spec(await self._secrets.get(secret_key))
             target = build_target(
                 target_spec,
                 allow_mock=self._settings.allow_mock_targets,
@@ -86,6 +91,10 @@ class ScanWorker:
         finally:
             if target is not None:
                 await target.aclose()
+            # Credentials are deleted whatever happened. The store expires them anyway,
+            # but leaving a live key sitting there until its TTL because a scan failed
+            # is a needless window.
+            await self._secrets.delete(secret_key)
 
         await self._notify(scan_id)
 

@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     scan_timeout_s: float = 900.0
     """Wall clock per scan, including all probes."""
 
+    target_secret_ttl_s: float = 1800.0
+    """How long a queued scan's credentials stay retrievable.
+
+    Long enough to survive a backlog, short enough that a credential for a scan that
+    never ran does not sit in the store indefinitely. The worker deletes it as soon as
+    the scan ends regardless."""
+
     webhook_timeout_s: float = 10.0
     webhook_max_attempts: int = 3
 

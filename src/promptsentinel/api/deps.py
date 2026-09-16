@@ -16,6 +16,7 @@ from promptsentinel.config import Settings
 from promptsentinel.db.session import Database
 from promptsentinel.jobs.queue import JobQueue
 from promptsentinel.probes.registry import ProbeRegistry
+from promptsentinel.secrets import SecretStore
 
 
 def get_settings(request: Request) -> Settings:
@@ -33,6 +34,11 @@ def get_queue(request: Request) -> JobQueue:
     return queue
 
 
+def get_secrets(request: Request) -> SecretStore:
+    store: SecretStore = request.app.state.secrets
+    return store
+
+
 def get_registry(request: Request) -> ProbeRegistry:
     registry: ProbeRegistry = request.app.state.registry
     return registry
@@ -42,3 +48,4 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 DatabaseDep = Annotated[Database, Depends(get_database)]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
 RegistryDep = Annotated[ProbeRegistry, Depends(get_registry)]
+SecretsDep = Annotated[SecretStore, Depends(get_secrets)]

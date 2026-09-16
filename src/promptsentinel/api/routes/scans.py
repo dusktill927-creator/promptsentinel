@@ -11,7 +11,13 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from promptsentinel.api.deps import DatabaseDep, QueueDep, RegistryDep, SettingsDep
+from promptsentinel.api.deps import (
+    DatabaseDep,
+    QueueDep,
+    RegistryDep,
+    SecretsDep,
+    SettingsDep,
+)
 from promptsentinel.api.schemas import (
     ErrorResponse,
     ScanAccepted,
@@ -29,8 +35,9 @@ from promptsentinel.db.repository import (
     probe_result_from_row,
 )
 from promptsentinel.reporting import to_sarif
+from promptsentinel.secrets import scan_secret_key
 from promptsentinel.targets.factory import build_target
-from promptsentinel.targets.spec import MockTargetSpec
+from promptsentinel.targets.spec import MockTargetSpec, serialize_with_secrets
 
 router = APIRouter(prefix="/v1/scans", tags=["scans"])
 
@@ -53,6 +60,7 @@ async def submit_scan(
     queue: QueueDep,
     registry: RegistryDep,
     settings: SettingsDep,
+    secrets: SecretsDep,
 ) -> ScanAccepted:
     """Queue a scan against a target you own.
 
@@ -103,7 +111,19 @@ async def submit_scan(
         scan_id = scan.id
         created_at = scan.created_at
 
-    await queue.enqueue(scan_id, request.target)
+    # Credentials go to the secret store, not into the queue message. The queue then
+    # carries an identifier that is useless on its own.
+    await secrets.put(
+        scan_secret_key(scan_id),
+        serialize_with_secrets(request.target),
+        ttl_s=settings.target_secret_ttl_s,
+    )
+    try:
+        await queue.enqueue(scan_id)
+    except Exception:
+        # Nothing will consume the credential now; do not leave it waiting out its TTL.
+        await secrets.delete(scan_secret_key(scan_id))
+        raise
 
     return ScanAccepted(
         id=scan_id,

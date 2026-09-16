@@ -16,10 +16,11 @@ from promptsentinel.core.authorization import REQUIRED_ATTESTATION
 from promptsentinel.db.session import Database
 from promptsentinel.jobs import worker as worker_module
 from promptsentinel.jobs.worker import ScanWorker
+from promptsentinel.secrets import InMemorySecretStore
 from promptsentinel.targets.mock import MockTarget
 from promptsentinel.targets.rate_limit import RateLimit, RateLimitedTarget
 from promptsentinel.targets.spec import MockTargetSpec
-from tests.integration.test_worker_failure_paths import SPEC, make_scan
+from tests.integration.test_worker_failure_paths import make_scan
 
 runner = CliRunner()
 
@@ -42,8 +43,9 @@ class TestWorkerPacing:
     async def test_the_worker_paces_its_target(
         self, database: Database, settings: Settings, captured_build
     ):
-        scan_id = await make_scan(database, probe_ids=["diagnostic.canary_echo"])
-        await ScanWorker(database, settings).execute(scan_id, SPEC)
+        secrets = InMemorySecretStore()
+        scan_id = await make_scan(database, secrets=secrets, probe_ids=["diagnostic.canary_echo"])
+        await ScanWorker(database, settings, secrets).execute(scan_id)
 
         assert captured_build, "build_target was never called"
         assert isinstance(captured_build[0]["rate_limit"], RateLimit)
@@ -57,8 +59,9 @@ class TestWorkerPacing:
             target_requests_per_second=7.5,
             target_burst=3,
         )
-        scan_id = await make_scan(database, probe_ids=["diagnostic.canary_echo"])
-        await ScanWorker(database, settings).execute(scan_id, SPEC)
+        secrets = InMemorySecretStore()
+        scan_id = await make_scan(database, secrets=secrets, probe_ids=["diagnostic.canary_echo"])
+        await ScanWorker(database, settings, secrets).execute(scan_id)
 
         limit = captured_build[0]["rate_limit"]
         assert limit.requests_per_second == 7.5

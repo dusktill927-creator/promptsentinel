@@ -126,7 +126,7 @@ class TestLifecycle:
         """A partial report reads as a pass. Better to make the client wait."""
 
         class StalledQueue:
-            async def enqueue(self, scan_id, target_spec): ...
+            async def enqueue(self, scan_id): ...
             async def aclose(self): ...
 
         app.state.queue = StalledQueue()
@@ -263,7 +263,7 @@ class TestSarifReport:
 
     async def test_sarif_is_409_before_the_scan_finishes(self, client, app):
         class StalledQueue:
-            async def enqueue(self, scan_id, target_spec): ...
+            async def enqueue(self, scan_id): ...
             async def aclose(self): ...
 
         app.state.queue = StalledQueue()
@@ -292,3 +292,99 @@ class TestSarifReport:
 
         with pytest.raises(ValidationError):
             await client.get(f"/v1/scans/{scan_id}/report/sarif")
+
+
+CREDENTIALED_TARGET = {
+    "kind": "openai_compatible",
+    "base_url": "http://127.0.0.1:9/v1",
+    "model": "m",
+    "api_key": "sk-live-credential",
+}
+
+
+class TestCredentialHandling:
+    """A target's API key must reach the worker and nowhere else."""
+
+    async def test_the_credential_never_enters_the_queue(self, client, app):
+        """The queue message is a scan ID. That is what makes it distributable."""
+        enqueued: list = []
+
+        class RecordingQueue:
+            async def enqueue(self, scan_id):
+                enqueued.append(scan_id)
+
+            async def aclose(self): ...
+
+        app.state.queue = RecordingQueue()
+        response = await client.post("/v1/scans", json=body(target=CREDENTIALED_TARGET))
+        assert response.status_code == 202
+
+        assert enqueued == [response.json()["id"]]
+        assert "sk-live-credential" not in str(enqueued)
+
+    async def test_the_credential_is_staged_for_the_worker(self, client, app):
+        from promptsentinel.secrets import scan_secret_key
+
+        class StalledQueue:
+            async def enqueue(self, scan_id): ...
+            async def aclose(self): ...
+
+        app.state.queue = StalledQueue()
+        scan_id = (await client.post("/v1/scans", json=body(target=CREDENTIALED_TARGET))).json()[
+            "id"
+        ]
+
+        stored = await app.state.secrets.get(scan_secret_key(scan_id))
+        assert "sk-live-credential" in stored
+
+    async def test_the_credential_is_deleted_once_the_scan_ends(self, client, drain, app):
+        """Deleted on completion, not left to wait out its TTL."""
+        from promptsentinel.secrets import SecretNotFoundError, scan_secret_key
+
+        scan_id = (await client.post("/v1/scans", json=body(target=CREDENTIALED_TARGET))).json()[
+            "id"
+        ]
+        await drain()
+
+        with pytest.raises(SecretNotFoundError):
+            await app.state.secrets.get(scan_secret_key(scan_id))
+
+    async def test_an_expired_credential_fails_the_scan_clearly(self, client, drain, app):
+        """A scan that outlived its credential must say so, not report a clean run."""
+        from promptsentinel.secrets import scan_secret_key
+
+        class StalledQueue:
+            async def enqueue(self, scan_id): ...
+            async def aclose(self): ...
+
+        app.state.queue = StalledQueue()
+        scan_id = (await client.post("/v1/scans", json=body(target=CREDENTIALED_TARGET))).json()[
+            "id"
+        ]
+        await app.state.secrets.delete(scan_secret_key(scan_id))
+
+        from promptsentinel.jobs.worker import ScanWorker
+
+        await ScanWorker(app.state.database, app.state.settings, app.state.secrets).execute(scan_id)
+
+        status = (await client.get(f"/v1/scans/{scan_id}")).json()
+        assert status["status"] == "failed"
+        assert "credentials" in (status["error"] or "")
+
+    async def test_a_failed_enqueue_does_not_strand_the_credential(self, client, app):
+        from promptsentinel.secrets import SecretNotFoundError, scan_secret_key
+
+        class BrokenQueue:
+            async def enqueue(self, scan_id):
+                raise RuntimeError("broker unreachable")
+
+            async def aclose(self): ...
+
+        app.state.queue = BrokenQueue()
+        with pytest.raises(RuntimeError):
+            await client.post("/v1/scans", json=body(target=CREDENTIALED_TARGET))
+
+        listing = await client.get("/v1/scans")
+        scan_id = listing.json()[0]["id"]
+        with pytest.raises(SecretNotFoundError):
+            await app.state.secrets.get(scan_secret_key(scan_id))
