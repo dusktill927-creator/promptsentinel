@@ -12,12 +12,20 @@ name, so a new technique is a new file, never an engine change.
 from __future__ import annotations
 
 import abc
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from promptsentinel.core.canary import Canary, mint_canary
 from promptsentinel.core.models import ProbeCategory, ProbeResult, Severity
-from promptsentinel.targets.base import ChatMessage, Target, TargetCapability
+from promptsentinel.targets.base import (
+    ChatMessage,
+    Document,
+    Target,
+    TargetCapability,
+    TargetResponse,
+    ToolSpec,
+)
 
 MAX_EVIDENCE_CHARS = 4000
 """Cap on recorded response text.
@@ -59,6 +67,13 @@ class ProbeContext:
     canaries: list[Canary] = field(default_factory=list)
     options: dict[str, Any] = field(default_factory=dict)
     max_attempts: int = 8
+    max_turns: int = 6
+    """Turn budget for multi-turn probes.
+
+    Separate from ``max_attempts`` because the two bound different things: attempts are
+    independent tries, turns are one escalating conversation. A probe that gave up on a
+    crescendo after ``max_attempts`` turns would be abandoning the technique halfway
+    through, which is not the same as trying it and failing."""
 
     def mint(self, label: str, *, placement: str = "system_prompt") -> Canary:
         """Create and record a canary for this scan."""
@@ -91,6 +106,62 @@ class Attempt:
         if self.assistant_prefill is None:
             return self.user
         return f"{self.user}\n\n[assistant turn prefilled with] {self.assistant_prefill}"
+
+
+class Conversation:
+    """A stateful, multi-turn exchange with a target.
+
+    Single-shot probes build a message list and send it. That cannot express the
+    attacks that actually work against a hardened application, where the point is to
+    accumulate context: establish a premise, get a small concession, and escalate from
+    a position the model has already accepted. Each turn here is sent with the full
+    history *including the target's own replies*, which is what makes the model
+    consistent with what it previously said -- the property the technique exploits.
+
+    The transcript doubles as evidence. A multi-turn finding whose report shows only
+    the last question is unreadable: the interesting part is the three turns that made
+    the last one work.
+    """
+
+    def __init__(
+        self,
+        target: Target,
+        system: ChatMessage,
+        *,
+        tools: Sequence[ToolSpec] | None = None,
+        documents: Sequence[Document] | None = None,
+    ):
+        self._target = target
+        self._tools = tools
+        self._documents = documents
+        self.messages: list[ChatMessage] = [system]
+        self.replies: list[TargetResponse] = []
+
+    @property
+    def turns(self) -> int:
+        """User turns sent so far."""
+        return len(self.replies)
+
+    async def say(self, text: str) -> TargetResponse:
+        """Send one more user turn, carrying the whole conversation so far."""
+        self.messages.append(ChatMessage.user(text))
+        response = await self._target.send(
+            self.messages, tools=self._tools, documents=self._documents
+        )
+        # The assistant's own words go back into the history: without them the model
+        # has no prior position to be held to, and the escalation cannot bite.
+        self.messages.append(ChatMessage(role="assistant", content=response.content))
+        self.replies.append(response)
+        return response
+
+    def transcript(self) -> str:
+        """The exchange, rendered for a human reading the report."""
+        lines = []
+        for message in self.messages:
+            if message.role == "system":
+                continue
+            lines.append(f"[{message.role}] {message.content}")
+        return "\n\n".join(lines)
 
 
 class Probe(abc.ABC):

@@ -476,8 +476,8 @@ A scanner matching on the literal canary would have reported that application se
 
 | Category | Techniques | Status |
 |---|---|---|
-| System-prompt extraction | 4 | ✅ shipped |
-| Jailbreak / content-policy bypass | 4 | ✅ shipped |
+| System-prompt extraction | 5 | ✅ shipped |
+| Jailbreak / content-policy bypass | 5 | ✅ shipped |
 | Indirect prompt injection (RAG) | 4 | ✅ shipped |
 | PII / data leakage via canaries | 4 | ✅ shipped |
 | Unauthorized tool-call / excessive agency | 4 | ✅ shipped |
@@ -494,6 +494,7 @@ need to know which one worked:
 | `system_prompt.delimiter_injection` | Forges role markers and end-of-prompt delimiters (`<\|im_start\|>`, `---END OF SYSTEM PROMPT---`). |
 | `system_prompt.completion_priming` | Prefills the assistant turn so the model *continues* into a disclosure it would have refused to start. |
 | `system_prompt.transformation` | Asks for a translated, reversed or base64-encoded copy. |
+| `system_prompt.crescendo` | **Multi-turn.** Escalates across several turns instead of asking outright. |
 
 That last one is worth dwelling on. Consider an app whose output filter blocks verbatim
 repetition of its system prompt but happily base64-encodes it:
@@ -513,6 +514,24 @@ Detection decodes base64 and reversed output before matching. Because every tran
 is deterministic and lossless, a match after decoding is still an *exact* match — so it
 still qualifies as proof, not as a similarity score.
 
+### Multi-turn probes
+
+Most probes ask once. The two marked **multi-turn** hold a real conversation, and each
+turn carries the full history **including the target's own replies** — which is the
+mechanism, not an implementation detail. By the final turn, refusing means contradicting
+a position the model visibly took, and models are markedly worse at that than refusing
+outright.
+
+Against a target hardened to resist direct questions but not accumulation:
+
+```
+system_prompt.direct_request     requests=3   nothing found
+system_prompt.crescendo          requests=4   CONFIRMED: System prompt disclosed after 4 turns
+```
+
+Findings carry the **whole exchange** as evidence, not just the question that worked —
+a final turn shown alone is unreadable, since the setup is the finding.
+
 ### Jailbreak / content-policy bypass
 
 | Probe | What it does |
@@ -521,6 +540,7 @@ still qualifies as proof, not as a similarity score.
 | `jailbreak.hypothetical_framing` | Wraps the request in fiction or a counterfactual |
 | `jailbreak.authority_override` | Claims developer or maintenance authority in the user turn |
 | `jailbreak.output_obfuscation` | Asks for the output spaced, reversed or encoded |
+| `jailbreak.persona_commitment` | **Multi-turn.** Gets the model to commit to a persona, then cashes the commitment in |
 
 **These probes contain no harmful content, and the repository has none.** Each scan
 seeds a rule into your real system prompt forbidding a random 128-bit marker under any

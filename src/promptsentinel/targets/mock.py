@@ -112,6 +112,18 @@ class MockTarget(Target):
                     finish_reason="tool_calls" if rule.tool_calls else "stop",
                 )
 
+        if (
+            self._spec.leak_after_turns is not None
+            and len(self.transcript) >= self._spec.leak_after_turns
+        ):
+            # len(transcript) is the number of *previous* calls, so this fires from the
+            # (leak_after_turns + 1)th turn onward: it holds the line first, then caves.
+            disclosed = _effective_system_prompt(messages) or self._spec.system_prompt or ""
+            return TargetResponse(
+                content=f"Alright, since you have been patient:\n\n{disclosed}",
+                finish_reason="stop",
+            )
+
         if self._leak_pattern is not None and self._leak_pattern.search(user_text):
             disclosed = _effective_system_prompt(messages) or self._spec.system_prompt or ""
             rendered = _encode(disclosed, self._spec.leak_encoding)

@@ -154,6 +154,21 @@ It also produced two pieces of shared machinery the later categories inherit:
   `python-multipart`, which Starlette needs even for urlencoded bodies: one field on one
   form does not justify another dependency in a security tool.
 
+## Phase 4 — depth
+
+- **Multi-turn probes** ✅ — `Conversation` in `probes/base.py` holds the exchange and
+  replays the target's own replies with every turn, which is what the crescendo
+  technique exploits. `system_prompt.crescendo` and `jailbreak.persona_commitment` use
+  it; both stop the moment the target gives way, and both carry the full transcript as
+  evidence.
+
+  The `Probe` interface needed no change to accommodate it, which is the useful result:
+  `run(target, context)` was general enough, and multi-turn state belongs to the probe
+  rather than to the engine.
+
+- Remaining: more techniques per category, additional target adapters (Anthropic-native,
+  LangServe, generic HTTP), and scan diffing so CI can fail only on *new* findings.
+
 ## Phase 3 complete
 
 What remains is not architecture. The highest-value work now is **breadth of the probe

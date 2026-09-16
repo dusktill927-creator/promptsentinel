@@ -175,6 +175,15 @@ class MockTargetSpec(BaseModel):
         default=False,
         description="Reply with the retrieved documents verbatim, as a summariser would.",
     )
+    leak_after_turns: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Disclose the system prompt once this many turns have been sent. Simulates "
+            "a target that refuses at first and gives way as context accumulates, "
+            "which is the behaviour multi-turn probes exist to find."
+        ),
+    )
     leak_encoding: Literal["base64", "reversed"] | None = Field(
         default=None,
         description=(
