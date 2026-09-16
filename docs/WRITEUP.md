@@ -105,7 +105,7 @@ The tool argued its own premise better than I could.
 
 ## The part I did not expect
 
-**Seven bugs were found by using the tool. 770 tests found none of them.**
+**Seven bugs were found by using the tool. 800 tests found none of them.**
 
 1. `--api-key-env` was silently ignored when combined with `--target FILE`. Cost a full
    20-probe scan against a real model, every probe failing authentication.

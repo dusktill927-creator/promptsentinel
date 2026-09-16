@@ -17,7 +17,8 @@ probes and returns a confidence-tiered report.
 ---
 
 **[Read the writeup](docs/WRITEUP.md)** — what it found, the design decisions behind the
-confidence tiering, and the seven bugs that using it exposed which 770 tests did not.
+confidence tiering, and the nine defects that using and measuring it exposed which 800
+tests did not.
 
 ## Why another LLM security scanner?
 
