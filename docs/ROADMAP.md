@@ -9,7 +9,7 @@ and GitHub Actions CI.
 The slice proves the pipeline: submit a scan → it runs in the background → a canary is
 seeded → the leak is confirmed by proof → a report comes back over HTTP.
 
-## Phase 1 — The five V1 probe categories
+## Phase 1 — The five V1 probe categories ✅
 
 Built one at a time, each with the three-outcome test pattern established by
 `tests/unit/test_diagnostic_probe.py` (proven leak / plausible-but-unproven / clean).
@@ -22,11 +22,21 @@ Built one at a time, each with the three-outcome test pattern established by
 | 4 | PII / data leakage ✅ | Canary "customer records" surfaced to an unauthorized asker |
 | 5 | Unauthorized tool call | A disallowed tool actually invoked — structural, not textual |
 
-Category 5 needs a way for a scan to declare which tools are disallowed, plus the
-tool-offering path exercised end to end; the `ToolCall` plumbing already exists for it.
-
 Each category gets multiple techniques (a probe per technique, not per category),
 which is exactly what the registry is for.
+
+**Phase 1 is complete**: 20 probes across five categories, none of which required an
+engine change.
+
+**Category 5 shipped** with four techniques: `direct_invocation`,
+`parameter_tampering`, `authority_pretext` and `injected_directive`. It is the only
+category whose proof is structural -- a restricted tool name in `response.tool_calls`,
+with no text matching anywhere in the path -- and tests assert that prose claiming an
+action can never reach CONFIRMED.
+
+It completed the configuration-gated capability model begun in category 3: TOOL_CALLING
+now depends on declared tools exactly as DOCUMENT_INJECTION depends on declared
+retrieval. Both report SKIPPED rather than clean when the declaration is missing.
 
 **Category 3 shipped** with four techniques: `plain_instruction`,
 `fake_system_block`, `hidden_markup` and `metadata_directive`. It required the first
