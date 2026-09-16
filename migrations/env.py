@@ -13,6 +13,7 @@ Two things here are deliberate:
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from logging.config import fileConfig
 
 from alembic import context
@@ -79,10 +80,30 @@ async def run_async_migrations(url: str) -> None:
     await engine.dispose()
 
 
+def _drive_async(url: str) -> None:
+    """Run the async migration, whether or not a loop is already running.
+
+    Alembic's command API is synchronous, so there is nothing to await from here. Called
+    from ordinary tooling there is no loop and ``asyncio.run`` is correct; called from
+    inside an async application or test there already is one, and ``asyncio.run`` would
+    raise -- surfacing as a bare "coroutine was never awaited" warning rather than an
+    error anyone can act on. In that case the migration gets its own loop on a worker
+    thread.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(run_async_migrations(url))
+        return
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(asyncio.run, run_async_migrations(url)).result()
+
+
 def run_migrations_online() -> None:
     url = _database_url()
     if _is_async(url):
-        asyncio.run(run_async_migrations(url))
+        _drive_async(url)
         return
 
     engine = engine_from_config(

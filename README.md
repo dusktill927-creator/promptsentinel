@@ -522,7 +522,18 @@ ruff check . && ruff format --check .
 mypy                    # strict mode
 ```
 
-CI runs all four on Python 3.11, 3.12 and 3.13.
+CI runs all four on Python 3.11, 3.12 and 3.13, plus a Postgres compatibility job.
+
+```bash
+pip install -e ".[dev,postgres]"
+PROMPTSENTINEL_TEST_POSTGRES_URL=postgresql+asyncpg://postgres@localhost:5432/postgres \
+  pytest tests/integration/test_postgres.py
+```
+
+Those tests are skipped without the variable. They cover the three things that actually
+differ between the engines: DDL portability of the migrations, type mapping in the drift
+check, and referential integrity — SQLite ignores foreign keys unless asked, so a
+cascade that silently does nothing locally must be proven to work on Postgres.
 
 ### Database migrations
 

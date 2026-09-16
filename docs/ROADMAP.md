@@ -115,7 +115,11 @@ It also produced two pieces of shared machinery the later categories inherit:
   a first scan never needs a capacity review. The bucket takes an injected clock and
   sleep, so its behaviour is verified exactly and instantly rather than with real
   sleeps.
-- **Postgres in CI** — the code is written for it; CI should prove it.
+- **Postgres in CI** ✅ — a dedicated job running a compatibility suite against a real
+  Postgres service: migrations apply, the drift check passes on that engine, JSON and
+  timezone-aware timestamps round-trip, and cascades actually cascade. It immediately
+  earned its place by exposing that `migrations/env.py` could not run from inside an
+  event loop.
 
 ## Phase 3 — Product surface
 
