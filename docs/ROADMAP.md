@@ -16,18 +16,35 @@ Built one at a time, each with the three-outcome test pattern established by
 
 | # | Category | Confirmation strategy |
 |---|---|---|
-| 1 | System-prompt extraction | Canary seeded in the system prompt returned verbatim |
+| 1 | System-prompt extraction ✅ | Canary seeded in the system prompt returned verbatim |
 | 2 | Jailbreak / policy bypass | Marker token the model was told never to emit |
 | 3 | Indirect prompt injection | Canary in a simulated retrieved document, exfiltrated |
 | 4 | PII / data leakage | Canary "customer records" surfaced to an unauthorized asker |
 | 5 | Unauthorized tool call | A disallowed tool actually invoked — structural, not textual |
 
 Category 3 needs a `DOCUMENT_INJECTION` target mode so probes can supply a poisoned
-document into the retrieval path. Category 5 needs the tool-offering path exercised
-end to end; the `ToolCall` plumbing already exists for it.
+document into the retrieval path. Category 5 needs a way for a scan to declare which
+tools are disallowed, plus the tool-offering path exercised end to end; the `ToolCall`
+plumbing already exists for it.
 
-Each category will want multiple techniques (a probe per technique, not per category),
+Each category gets multiple techniques (a probe per technique, not per category),
 which is exactly what the registry is for.
+
+**Category 1 shipped** with four techniques: `direct_request`, `delimiter_injection`,
+`completion_priming` and `transformation`. It required no engine change — the four
+files registered themselves through discovery, which was the first real test of the
+plugin claim.
+
+It also produced two pieces of shared machinery the later categories inherit:
+
+- **Encoding-aware canary detection.** Asking for a base64 or reversed copy defeats a
+  filter that only blocks verbatim repetition, and defeats a scanner that only looks
+  for the literal token. Detection now decodes before matching; because every transform
+  is deterministic and lossless, a match after decoding is still exact, so it stays on
+  the proof side of the line.
+- **`verbatim_span_length()`**, reporting when a response echoes a long contiguous span
+  of the operator's own prompt. Deliberately a SUSPICIOUS signal rather than a proof —
+  a system prompt can contain boilerplate the model already knows.
 
 ## Phase 2 — Operability
 

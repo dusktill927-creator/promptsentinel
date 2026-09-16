@@ -44,6 +44,12 @@ system, not by convention — see [`core/models.py`](src/promptsentinel/core/mod
 `Finding` is frozen, rejects `CONFIRMED` without a `Proof` object, and overrides
 `model_copy` to re-validate so `update={"confidence": "confirmed"}` cannot slip through.
 
+The line holds even where it costs us findings. When a response echoes a long verbatim
+span of your real system prompt, that is reported as a *signal* on a suspicious
+finding, not as proof — because a system prompt can contain boilerplate the model
+already knows and could reproduce without ever having leaked it. Canaries have no such
+failure mode, which is why they remain the only route to `confirmed`.
+
 ---
 
 ## Quick start
@@ -227,14 +233,44 @@ annotated reference implementation — read it first.
 
 ## Probe coverage
 
-| Category | Status |
+| Category | Techniques | Status |
+|---|---|---|
+| System-prompt extraction | 4 | ✅ shipped |
+| Jailbreak / content-policy bypass | — | 🚧 planned |
+| Indirect prompt injection (RAG) | — | 🚧 planned |
+| PII / data leakage via canaries | — | 🚧 planned |
+| Unauthorized tool-call / excessive agency | — | 🚧 planned |
+| Diagnostic (reference probe) | 1 | ✅ shipped, off by default |
+
+### System-prompt extraction
+
+One probe per *technique*, not per category, because they fail differently and you
+need to know which one worked:
+
+| Probe | What it does |
 |---|---|
-| Diagnostic (reference probe) | ✅ shipped |
-| System-prompt extraction | 🚧 planned |
-| Jailbreak / content-policy bypass | 🚧 planned |
-| Indirect prompt injection (RAG) | 🚧 planned |
-| PII / data leakage via canaries | 🚧 planned |
-| Unauthorized tool-call / excessive agency | 🚧 planned |
+| `system_prompt.direct_request` | Asks outright, in three phrasings. The baseline every deployment should survive. |
+| `system_prompt.delimiter_injection` | Forges role markers and end-of-prompt delimiters (`<\|im_start\|>`, `---END OF SYSTEM PROMPT---`). |
+| `system_prompt.completion_priming` | Prefills the assistant turn so the model *continues* into a disclosure it would have refused to start. |
+| `system_prompt.transformation` | Asks for a translated, reversed or base64-encoded copy. |
+
+That last one is worth dwelling on. Consider an app whose output filter blocks verbatim
+repetition of its system prompt but happily base64-encodes it:
+
+```
+summary: {"confirmed": 1, "probes_run": 4, "probes_errored": 0}
+  [confirmed] system_prompt.transformation
+              System prompt disclosed via output transformation (base64-encoded)
+              proof: Canary 'system_prompt_secret' was reproduced base64-encoded
+                     (decoded deterministically to match)
+```
+
+The other three probes correctly found nothing. A scanner that only looks for the
+literal canary would have reported this application as clean.
+
+Detection decodes base64 and reversed output before matching. Because every transform
+is deterministic and lossless, a match after decoding is still an *exact* match — so it
+still qualifies as proof, not as a similarity score.
 
 ---
 
