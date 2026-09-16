@@ -145,6 +145,47 @@ as a `toolExecutionNotification`, so a broken scan never uploads as a clean one.
 
 The API serves the same document at `GET /v1/scans/{id}/report/sarif`.
 
+### HTML, for sending to whoever owns the app
+
+```bash
+promptsentinel scan ... --format html --output report.html
+promptsentinel scan ... --format html --exclude-evidence   # safe to share
+```
+
+Also at `GET /v1/scans/{id}/report/html`. One self-contained file — inline CSS, **no
+JavaScript, no external requests, no build step**. That keeps it readable offline and
+keeps an npm dependency tree out of a security tool, where it would be a supply-chain
+surface pointed at the people least able to afford one.
+
+Escaping matters more here than it looks: the report is built almost entirely from text
+*the target produced*, and a target under test is by construction something an attacker
+may control. Every value goes through one escape helper, and tests inject `<script>` via
+the target response, finding titles, proof detail, probe errors, signals, the target name
+and seeded labels. The endpoint also sends `Content-Security-Policy: default-src 'none'`.
+
+Transcripts are included by default — a redacted transcript proves nothing and triage
+needs the evidence — so the report says plainly that it contains them.
+`--exclude-evidence` produces a shareable version with no canary values anywhere.
+
+### Dashboard
+
+```bash
+PROMPTSENTINEL_ENABLE_DASHBOARD=true uvicorn promptsentinel.api.app:app
+```
+
+Off by default, and deliberately thin: `/dashboard` lists recent scans and links to their
+reports. **It has no capability the API and CLI lack.**
+
+Read-only is the security posture, not a limitation. There are no state-changing
+endpoints — the single POST is sign-in — so there is no CSRF surface worth the name, and
+**you cannot start a scan from it.** Starting a scan means typing an attestation, and a
+web form is exactly where people click through an attestation without reading it.
+
+Sign-in exchanges your API key for an `HttpOnly`, `SameSite=strict` cookie scoped to
+`/dashboard`, so it is never sent to the API routes. The cookie *is* the key rather than
+a session token backed by a store: for a read-only, self-hosted dashboard, inventing
+session management would add more security-relevant code than it removes.
+
 Scan the built-in mock target (no API key, no network):
 
 ```bash

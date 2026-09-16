@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     flag, because an unauthenticated instance is a machine that will attack any URL
     anyone posts to it, using the operator's credentials and network."""
 
+    enable_dashboard: bool = False
+    """Serve the read-only web dashboard at /dashboard.
+
+    Off by default. It is a convenience, not part of the product surface, and a
+    security tool should not grow HTTP endpoints nobody asked for."""
+
     allow_mock_targets: bool = True
     """Set false in production. A mock target yields a clean report with nothing tested."""
 

@@ -104,6 +104,21 @@ a { color:inherit; }
 """
 
 
+def page(title: str, body: str) -> str:
+    """Wrap page content in the shared document shell.
+
+    Exported so the dashboard renders in the same style without duplicating it, and
+    -- more to the point -- without a second place where markup is assembled and
+    escaping could be forgotten.
+    """
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f"<title>{esc(title)}</title>"
+        f"<style>{STYLES}</style></head><body>{body}</body></html>"
+    )
+
+
 def esc(value: object) -> str:
     """Escape a value for HTML. The only way anything reaches the output."""
     return html.escape(str(value), quote=True)
@@ -275,9 +290,4 @@ def render_report(
     )
     body.append("</main>")
 
-    return (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f"<title>PromptSentinel report - {esc(target)}</title>"
-        f"<style>{STYLES}</style></head><body>" + "".join(body) + "</body></html>"
-    )
+    return page(f"PromptSentinel report - {target}", "".join(body))

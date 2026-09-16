@@ -133,7 +133,7 @@ It also produced two pieces of shared machinery the later categories inherit:
   queue and store together, so the broken combination of a distributed queue with a
   process-local store cannot be configured.
 - Report export: SARIF ✅ (findings land in GitHub code scanning, from both the CLI
-  `--format sarif` and `GET /v1/scans/{id}/report/sarif`); HTML still to do.
+  `--format sarif` and `GET /v1/scans/{id}/report/sarif`) and HTML ✅.
 
   The export is where the confidence tiering was most at risk, because SARIF has no
   concept of it. An unproven finding is capped at `warning` rather than mapped by
@@ -144,8 +144,23 @@ It also produced two pieces of shared machinery the later categories inherit:
   Findings are rebuilt as domain objects on the way out of the database, which re-runs
   the confidence invariant -- a row edited to claim proof it does not have fails the
   export rather than being published as confirmed.
-- A thin dashboard. API and CLI first — the dashboard should have no capability the API
-  lacks.
+- A thin dashboard ✅ — off by default, read-only, no capability the API and CLI lack.
+  It cannot start a scan: that means typing an attestation, and a web form is exactly
+  where people click through one without reading it. No state-changing routes but
+  sign-in, so there is no CSRF surface worth the name. Sign-in exchanges the API key for
+  an HttpOnly, SameSite=strict cookie scoped to /dashboard.
+
+  The login form is parsed with `urllib.parse.parse_qs` rather than pulling in
+  `python-multipart`, which Starlette needs even for urlencoded bodies: one field on one
+  form does not justify another dependency in a security tool.
+
+## Phase 3 complete
+
+What remains is not architecture. The highest-value work now is **breadth of the probe
+corpus** (four techniques per category is a credible demonstration, not coverage) and
+**running against real LLM endpoints**, which is the one thing no amount of mock-target
+testing substitutes for -- real refusal behaviour will surface heuristic tuning the
+mocks cannot.
 
 ## Explicitly out of scope
 

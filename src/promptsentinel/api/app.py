@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from promptsentinel import __version__
-from promptsentinel.api.routes import health, probes, scans
+from promptsentinel.api.routes import dashboard, health, probes, scans
 from promptsentinel.api.security import require_api_key
 from promptsentinel.config import Settings, get_settings
 from promptsentinel.core.errors import AuthorizationError, ConfigurationError, TargetError
@@ -113,6 +113,10 @@ def create_app(
     app.include_router(health.router)
     app.include_router(probes.router, dependencies=[Depends(require_api_key)])
     app.include_router(scans.router, dependencies=[Depends(require_api_key)])
+    if resolved_settings.enable_dashboard:
+        # Not behind require_api_key: a browser cannot send that header. It does its own
+        # check, accepting the same key from a cookie it sets at sign-in.
+        app.include_router(dashboard.router)
     return app
 
 
