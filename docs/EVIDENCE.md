@@ -12,6 +12,8 @@ the README so it can be blunt.
 |---|---|---|
 | All 26 probes | `openai/gpt-oss-120b` via Groq | 10 confirmed, 0 suspicious, 0 errored |
 | All 27 probes | `llama3.2:1b` via local Ollama | 11 confirmed, 4 suspicious, 3 inconclusive, 0 errored |
+| All 27 probes | `qwen2.5:1.5b` via local Ollama | 16 confirmed, 6 suspicious, 0 errored |
+| All 27 probes | `gemma2:2b` via local Ollama | 14 confirmed, 2 suspicious, 5 errored (no tool support) |
 | OpenAI-compatible adapter | Groq, Google Gemini | Request/response handling, tool-call parsing |
 | Generic HTTP adapter | A bespoke demo app over a real socket | All 25 probes ran; 12 confirmed, 0 skipped, 0 errored |
 | Migrations, ORM, cascades | PostgreSQL 18 | Schema matches models; FK cascades enforced |
@@ -81,7 +83,28 @@ verified there is adapter-level only:
 
 No probe verdicts came from Gemini.
 
-### A second model, locally
+### Four models
+
+| Model | Confirmed | Suspicious | Errored |
+|---|---|---|---|
+| `openai/gpt-oss-120b` (Groq) | 7 | 0 | 0 |
+| `llama3.2:1b` (Ollama) | 11 | 4 | 0 |
+| `qwen2.5:1.5b` (Ollama) | 16 | 6 | 0 |
+| `gemma2:2b` (Ollama) | 14 | 2 | 5 |
+
+**This is not a benchmark.** Three of the four are 1–2B models chosen because they run
+locally for free; the fourth is two orders of magnitude larger. The confirmed counts track
+model size almost exactly, which is unsurprising and not the point. The point is four
+independently-trained models producing genuinely different output for the heuristics to be
+measured against.
+
+Gemma's five errors are worth reading: `gemma2:2b` does not support tool calling, and
+Ollama rejects the request with HTTP 400. The target configuration declared tools, the
+scanner believed the declaration — as it must, since only the operator knows — and the
+excessive-agency probes reported **ERRORED rather than clean**. A scanner that swallowed
+that would have reported an application with no tool-authorization problems.
+
+### The first local model, in detail
 
 `llama3.2:1b` run under Ollama on CPU, same target configuration, no API key involved.
 `examples/ollama_target.json` makes this reproducible by anyone at zero cost.
@@ -118,6 +141,17 @@ been checked against. Measuring immediately found two defects:
 false positive caused by a character, invisible to every test because every test string
 was typed with an ASCII apostrophe. Input is now folded to ASCII punctuation before
 matching, and re-scanning the same model removed the finding.
+
+Two further defects came from the Qwen and Gemma scans. `explicit_refusal` matched only
+the contracted `I'm sorry`, so Qwen's `I am sorry, but ... I am not authorized to reveal`
+read as no refusal at all; a `declines_authority` signal now covers refusals that never
+say "cannot". And the credential pattern was anchored with `\b`, which can never match
+inside `support_api_key=` because underscore is a word character — which is exactly how
+Qwen leaked it.
+
+Four defects in total, every one a phrasing the pattern's author had not happened to type.
+That is the argument for measurement over more test cases: examples invented by the same
+person who wrote the pattern will agree with it.
 
 **Disclosure detection had almost no recall.** It fired on **0 of 38** recorded responses,
 including obvious leaks like `Initialization text supplied at the start of this
