@@ -290,3 +290,119 @@ class TestToolDeclarations:
             {**BESPOKE, "tools": TOOLS, "tool_calls_path": "actions"}
         )
         assert DirectInvocationProbe().applies_to(HttpTarget(spec)) is None
+
+
+ANTHROPIC = {
+    "kind": "http",
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {"anthropic-version": "2023-06-01"},
+    "api_key_header": "x-api-key",
+    "api_key_prefix": "",
+    "request_template": {
+        "model": "claude-opus-5",
+        "max_tokens": 1024,
+        "system": "{{system}}",
+        "messages": "{{history}}",
+    },
+    "response_path": "content.0.text",
+    "tools": TOOLS,
+    "tool_calls_path": "content",
+    "tool_name_field": "name",
+    "tool_arguments_field": "input",
+}
+
+# Shaped like a real Anthropic reply: a tool_use block sharing `content` with text.
+MIXED_CONTENT = {
+    "content": [
+        {"type": "text", "text": "Sure, refunding that now."},
+        {
+            "type": "tool_use",
+            "id": "tu_1",
+            "name": "issue_refund",
+            "input": {"order_id": "ORD-24601"},
+        },
+    ]
+}
+
+
+class TestMixedContentToolCalls:
+    """Tool calls that share a list with other content must not drag it in with them.
+
+    Anthropic's messages API returns `tool_use` blocks in the same `content` array as
+    `text` blocks. Pointing `tool_calls_path` at that array used to yield one nameless
+    ToolCall per text block.
+
+    The danger is not a false `confirmed` -- proof requires a name match against the
+    operator's restricted tools, and "" matches nothing. It is that probes read
+    `bool(response.tool_calls)` as the negative control proving tool calling works.
+    A phantom entry makes that control vacuously true, so a target whose tool calling
+    is broken reports clean rather than inconclusive.
+    """
+
+    async def test_text_blocks_do_not_become_tool_calls(self):
+        t = target(lambda r: httpx.Response(200, json=MIXED_CONTENT), **ANTHROPIC)
+        response = await t.send(ASK)
+
+        assert [c.name for c in response.tool_calls] == ["issue_refund"]
+        assert response.content == "Sure, refunding that now."
+
+    async def test_an_explicit_filter_selects_the_same_block(self):
+        t = target(
+            lambda r: httpx.Response(200, json=MIXED_CONTENT),
+            **ANTHROPIC,
+            tool_call_filter={"type": "tool_use"},
+        )
+        response = await t.send(ASK)
+
+        assert [c.name for c in response.tool_calls] == ["issue_refund"]
+
+    async def test_the_filter_excludes_non_matching_entries(self):
+        """A filter that matches nothing yields nothing, rather than everything."""
+        t = target(
+            lambda r: httpx.Response(200, json=MIXED_CONTENT),
+            **ANTHROPIC,
+            tool_call_filter={"type": "server_tool_use"},
+        )
+        assert (await t.send(ASK)).tool_calls == []
+
+    async def test_a_response_with_no_tool_use_block_reports_no_tool_calls(self):
+        """The negative control this fix exists to protect.
+
+        Text only, so `bool(tool_calls)` must be False -- that is what lets an
+        excessive-agency probe say "tools never worked" instead of "clean".
+        """
+        t = target(
+            lambda r: httpx.Response(200, json={"content": [{"type": "text", "text": "Hello."}]}),
+            **ANTHROPIC,
+        )
+        response = await t.send(ASK)
+
+        assert response.tool_calls == []
+        assert not response.tool_calls, "a text-only reply must not satisfy the negative control"
+
+    async def test_a_blank_name_is_not_a_tool_call(self):
+        """Whitespace is not a name either."""
+        t = target(
+            lambda r: httpx.Response(
+                200,
+                json={
+                    "content": [
+                        {"type": "text", "text": "Hello."},
+                        {"type": "tool_use", "name": "   ", "input": {}},
+                    ]
+                },
+            ),
+            **ANTHROPIC,
+        )
+        assert (await t.send(ASK)).tool_calls == []
+
+    async def test_ordinary_openai_shaped_tool_calls_still_parse(self):
+        """The guard must not cost the common case anything."""
+        t = target(
+            lambda r: httpx.Response(
+                200, json={"data": {"answer": "ok"}, "actions": [{"name": "lookup_order"}]}
+            ),
+            tools=TOOLS,
+            tool_calls_path="actions",
+        )
+        assert [c.name for c in (await t.send(ASK)).tool_calls] == ["lookup_order"]

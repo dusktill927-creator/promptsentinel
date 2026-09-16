@@ -234,7 +234,41 @@ look so far at the weakness described below, and it is one data point, not a rat
 |---|---|
 | Model behaviour behind a bespoke HTTP app | The demo app's responses are scripted, not generated |
 | Scan diffing | Exercised on real scan outputs, but those came from mock targets |
-| Anthropic / other providers | Only OpenAI-compatible endpoints have been used |
+| Anthropic / other providers | No live scan. The adapter has been driven against a recorded Anthropic response shape only — see below |
+
+### A defect found by simulation, not by scanning
+
+No Anthropic key was available, so this was reached by replaying a real-shaped
+`messages` response through the HTTP adapter with a fake transport. It is weaker
+evidence than a live scan and is recorded as such — but the defect it found is
+structural, not behavioural, so a mock is sufficient to establish it.
+
+Anthropic returns `tool_use` blocks in the same `content` array as `text` blocks.
+Pointing `tool_calls_path` at that array produced one **nameless** `ToolCall` per text
+block:
+
+```
+tool_calls : [('', {}), ('issue_refund', {'order_id': 'ORD-24601', ...})]
+```
+
+The `confirmed` tier was never at risk. Proof requires `restricted.get(call.name)` to
+hit a tool the operator declared restricted, and `""` matches nothing.
+
+The damage was to the **negative control**. `excessive_agency` reads
+`bool(control.tool_calls)` to establish that tool calling works at all before trusting a
+clean result. One phantom entry per response makes that check vacuously true — so a
+target whose tool calling was entirely broken would have reported **clean** instead of
+**inconclusive**. That is the same failure the three indirect-injection probes correctly
+avoided on `llama3.2:1b`, arriving from the opposite direction.
+
+Fixed with two guards: an optional `tool_call_filter` for the operator to select blocks
+explicitly, and an unconditional rule that an entry with no name is not a tool call.
+The second is the one that matters, because it needs no configuration to be correct.
+
+Worth stating plainly: this says nothing about how Claude models *behave* under the
+probes. It establishes only that the adapter can address them without corrupting a
+control. Model behaviour remains unverified for every provider except the four listed
+above.
 
 ## Where false positives are possible
 

@@ -11,6 +11,24 @@ what counts as proof, is called out explicitly in every release that makes one.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mixed content lists no longer manufacture tool calls.** Anthropic returns
+  `tool_use` blocks in the same `content` array as `text` blocks, so an HTTP
+  target pointing `tool_calls_path` at that array parsed one nameless `ToolCall`
+  per text block. No `confirmed` finding was ever at risk — proof requires a name
+  match against the operator's restricted tools — but excessive-agency probes read
+  `bool(response.tool_calls)` as the negative control establishing that tool
+  calling works. A phantom entry made that control vacuously true, so a target
+  with entirely broken tool calling would report **clean** rather than
+  **inconclusive**. An entry with no name is no longer a tool call, and
+  `tool_call_filter` lets an operator select blocks explicitly.
+
+### Added
+
+- `HttpTargetSpec.tool_call_filter` — restrict tool-call parsing to entries
+  matching given key/value pairs, e.g. `{"type": "tool_use"}`.
+
 ## [0.2.0] - 2026-09-16
 
 The first release driven by evidence from real models rather than from mocks.

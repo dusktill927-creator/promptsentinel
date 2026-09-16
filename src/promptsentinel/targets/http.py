@@ -165,6 +165,31 @@ class HttpTarget(Target):
             for index, doc in enumerate(documents, start=1)
         )
 
+    def _is_tool_call(self, call: Any) -> bool:
+        """Decide whether one entry of ``tool_calls_path`` is really a tool call.
+
+        Two guards, and the order matters.
+
+        ``tool_call_filter`` is the operator's own selector, for lists that mix tool
+        calls with other content -- Anthropic puts ``tool_use`` blocks in the same
+        ``content`` array as ``text`` blocks, so a path pointing at that array yields
+        both.
+
+        The name check then runs regardless of configuration. A tool call with no name
+        is not a tool call, and admitting one is not a harmless extra: probes read
+        ``bool(response.tool_calls)`` as the negative control that establishes tool
+        calling works at all. One nameless entry per response makes that control
+        vacuously true, so a target whose tool calling is entirely broken reports clean
+        instead of inconclusive.
+        """
+        if not isinstance(call, dict):
+            return False
+        if self._spec.tool_call_filter and any(
+            call.get(key) != value for key, value in self._spec.tool_call_filter.items()
+        ):
+            return False
+        return bool(str(call.get(self._spec.tool_name_field, "")).strip())
+
     def _parse(self, payload: Any, latency_ms: int) -> TargetResponse:
         content = dig(payload, self._spec.response_path)
         if content is None:
@@ -180,12 +205,12 @@ class HttpTarget(Target):
             if isinstance(raw, list):
                 tool_calls = [
                     ToolCall(
-                        name=str(call.get(self._spec.tool_name_field, "")),
+                        name=str(call[self._spec.tool_name_field]),
                         arguments=_as_dict(call.get(self._spec.tool_arguments_field)),
                         raw_arguments=json.dumps(call.get(self._spec.tool_arguments_field)),
                     )
                     for call in raw
-                    if isinstance(call, dict)
+                    if self._is_tool_call(call)
                 ]
 
         return TargetResponse(

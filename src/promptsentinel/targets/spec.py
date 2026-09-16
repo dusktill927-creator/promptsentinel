@@ -132,6 +132,16 @@ class HttpTargetSpec(BaseModel):
     )
     tool_name_field: str = "name"
     tool_arguments_field: str = "arguments"
+    tool_call_filter: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Only treat entries matching these key/value pairs as tool calls. Needed "
+            "when tool calls share a list with other content, as in Anthropic's "
+            "messages API, where tool_use blocks sit alongside text blocks in the same "
+            "'content' array."
+        ),
+        examples=[{"type": "tool_use"}],
+    )
 
     document_template: str = Field(
         default="[{index}] {title} ({source})\n{content}",
