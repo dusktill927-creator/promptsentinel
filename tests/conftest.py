@@ -43,6 +43,9 @@ def settings(tmp_path) -> Settings:
     return Settings(
         database_url=f"sqlite+aiosqlite:///{tmp_path}/test.db",
         allow_mock_targets=True,
+        # Opted out explicitly: these tests cover the pipeline, and authentication has
+        # its own suite in test_api_auth.py.
+        allow_unauthenticated=True,
         max_concurrent_scans=2,
         max_concurrent_probes=4,
         probe_timeout_s=5.0,

@@ -34,6 +34,7 @@ from typing import Annotated
 import typer
 
 from promptsentinel import __version__
+from promptsentinel.api.security import generate_key
 from promptsentinel.cli import render
 from promptsentinel.core.authorization import REQUIRED_ATTESTATION, require_authorization
 from promptsentinel.core.errors import AuthorizationError, PromptSentinelError
@@ -249,6 +250,20 @@ def probes(
         typer.echo(f"{probe_cls.id:42} {probe_cls.category.value}{default}")
         typer.echo(f"  {probe_cls.description}")
     typer.echo(f"\n{len(catalogue)} probes")
+
+
+@app.command()
+def keygen() -> None:
+    """Generate an API key for the server.
+
+    Prints the key once and the hash to configure. The server stores only the hash, so
+    this output is the only time the key exists anywhere it can be copied from.
+    """
+    key, digest = generate_key()
+    typer.echo("\nAPI key (give this to the client, it is not recoverable):\n")
+    typer.secho(f"  {key}\n", fg=typer.colors.GREEN)
+    typer.echo("Server configuration (store this, not the key):\n")
+    typer.echo(f"  PROMPTSENTINEL_API_KEY_HASHES={digest}\n")
 
 
 @app.command()

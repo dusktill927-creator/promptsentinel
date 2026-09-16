@@ -97,6 +97,7 @@ class TestStartupBehaviour:
         settings = Settings(
             database_url=f"sqlite+aiosqlite:///{tmp_path}/empty.db",
             auto_create_schema=False,
+            allow_unauthenticated=True,
         )
         database = Database(settings.database_url)
         app = create_app(settings=settings, database=database)

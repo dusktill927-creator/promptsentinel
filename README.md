@@ -151,6 +151,52 @@ it actually runs in.
 
 ---
 
+## Authentication
+
+The API requires a key on every `/v1` endpoint. **It refuses to start without one**:
+
+```
+refusing to start: no API keys configured. Generate one with `promptsentinel keygen`
+and set PROMPTSENTINEL_API_KEY_HASHES, or set PROMPTSENTINEL_ALLOW_UNAUTHENTICATED=true
+if this instance is not reachable by anyone else.
+```
+
+Refusing to boot is deliberate. An unauthenticated instance is a machine that will
+attack any URL anyone posts to it, using your credentials and your network. The failure
+mode of a startup *warning* is that running for months, because nobody reads startup
+warnings.
+
+```bash
+promptsentinel keygen
+#   API key (give this to the client, it is not recoverable):
+#     ps_Yfbw4pxoNGQ88tq_VFs2zK3LKNKIDpBn7BacM2kSoWQ
+#   Server configuration (store this, not the key):
+#     PROMPTSENTINEL_API_KEY_HASHES=e88b3a57affb...
+```
+
+Only **SHA-256 hashes** are stored, so a leaked config file, env dump or container image
+hands over nothing usable. Send the key as `Authorization: Bearer <key>` or `X-API-Key`.
+
+> A fast hash is correct here, despite the usual advice. bcrypt/scrypt/Argon2 exist to
+> make *guessing* expensive, and guessing only matters for low-entropy human passwords.
+> These keys are 256 bits from `secrets.token_urlsafe` — brute force isn't on the table,
+> and a slow KDF per request would add latency and a DoS vector for nothing.
+
+Health endpoints stay open: a liveness probe that needs a credential reports an outage
+every time that credential rotates.
+
+### Two independent gates
+
+Authentication and authorization are separate controls and both must pass:
+
+| Response | Meaning |
+|---|---|
+| `401` | Who are you? No valid API key. |
+| `403` | Are you allowed to test this target? No valid attestation. |
+
+An authenticated caller still cannot scan without attesting, and every rejection looks
+identical to a caller probing for which keys exist.
+
 ## Authorization is not optional
 
 ```json

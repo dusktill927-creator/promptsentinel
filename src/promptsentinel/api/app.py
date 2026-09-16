@@ -11,11 +11,12 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from promptsentinel import __version__
 from promptsentinel.api.routes import health, probes, scans
+from promptsentinel.api.security import require_api_key
 from promptsentinel.config import Settings, get_settings
 from promptsentinel.core.errors import AuthorizationError, ConfigurationError, TargetError
 from promptsentinel.db.session import Database
@@ -38,6 +39,11 @@ Findings are confidence-tiered:
 * **suspicious** -- a heuristic fired but there is no hard proof. Needs a human.
 
 A suspicious finding is never promoted to confirmed.
+
+### Authentication
+
+Every `/v1` endpoint requires an API key, sent as `Authorization: Bearer <key>` or
+`X-API-Key: <key>`. Health endpoints are open.
 
 ### Authorization is mandatory
 
@@ -69,6 +75,8 @@ def create_app(
             worker.execute, max_concurrent=resolved_settings.max_concurrent_scans
         )
 
+        _check_authentication(resolved_settings)
+
         app.state.settings = resolved_settings
         app.state.database = db
         app.state.registry = registry
@@ -97,10 +105,29 @@ def create_app(
     )
 
     _register_exception_handlers(app)
+    # Health is unguarded on purpose: a liveness probe that needs a credential reports
+    # an outage every time that credential rotates.
     app.include_router(health.router)
-    app.include_router(probes.router)
-    app.include_router(scans.router)
+    app.include_router(probes.router, dependencies=[Depends(require_api_key)])
+    app.include_router(scans.router, dependencies=[Depends(require_api_key)])
     return app
+
+
+def _check_authentication(settings: Settings) -> None:
+    """Fail closed at startup rather than serving an open instance.
+
+    Refusing to boot is deliberate. The failure mode of a warning here is an
+    unauthenticated scanner running for months on an internal network, and nobody
+    reads startup warnings.
+    """
+    if settings.api_key_hashes or settings.allow_unauthenticated:
+        return
+    raise ConfigurationError(
+        "refusing to start: no API keys configured. Generate one with "
+        "`promptsentinel keygen` and set PROMPTSENTINEL_API_KEY_HASHES, or set "
+        "PROMPTSENTINEL_ALLOW_UNAUTHENTICATED=true if this instance is not reachable "
+        "by anyone else."
+    )
 
 
 def _register_exception_handlers(app: FastAPI) -> None:

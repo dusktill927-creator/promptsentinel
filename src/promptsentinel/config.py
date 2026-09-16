@@ -9,8 +9,10 @@ ones must be overridden.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -35,6 +37,24 @@ class Settings(BaseSettings):
     rollback. The migrations and the models are kept identical by a drift test, so the
     two paths produce the same schema."""
 
+    api_key_hashes: Annotated[list[str], NoDecode] = []
+    """SHA-256 hashes of accepted API keys, comma-separated in the environment.
+
+    ``NoDecode`` is required, not decoration: pydantic-settings JSON-decodes complex
+    types from the environment *before* field validators run, so without it a plain
+    comma-separated value raises a parse error at startup rather than reaching the
+    validator below.
+
+    Generate a pair with ``promptsentinel keygen``. Only hashes are stored, so a
+    leaked config file or image does not hand over working credentials."""
+
+    allow_unauthenticated: bool = False
+    """Serve the API with no authentication.
+
+    False by default and the startup check refuses to run without either keys or this
+    flag, because an unauthenticated instance is a machine that will attack any URL
+    anyone posts to it, using the operator's credentials and network."""
+
     allow_mock_targets: bool = True
     """Set false in production. A mock target yields a clean report with nothing tested."""
 
@@ -56,6 +76,14 @@ class Settings(BaseSettings):
     webhook_max_attempts: int = 3
 
     log_level: str = "INFO"
+
+    @field_validator("api_key_hashes", mode="before")
+    @classmethod
+    def _split_hashes(cls, value: object) -> object:
+        """Accept a comma-separated string, which is how env vars carry lists."""
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
 
 
 @lru_cache

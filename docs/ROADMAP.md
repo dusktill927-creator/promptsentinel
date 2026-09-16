@@ -104,8 +104,11 @@ It also produced two pieces of shared machinery the later categories inherit:
   bypass, so a test asserts no `--force`/`--skip-auth`/`--yes` flag exists, and the
   engine's `Authorization` argument cannot be constructed without a valid attestation
   anyway. Exit codes separate "found something" (1) from "could not run" (2).
-- **API authentication** — the API currently has none and must not be exposed to an
-  untrusted network.
+- **API authentication** ✅ — API keys stored as SHA-256 hashes, sent as Bearer or
+  `X-API-Key`, with constant-time comparison and identical rejections whatever the
+  reason. The server refuses to boot with neither keys nor an explicit opt-out: the
+  failure mode of a startup warning is an unauthenticated scanner running for months.
+  Health endpoints stay unguarded so credential rotation cannot look like an outage.
 - **Rate limiting toward the target** — `max_concurrent_probes` bounds parallelism, but
   a token-bucket per target would be a stronger guarantee that a scan never resembles a
   denial-of-service against the operator's own application.
