@@ -55,7 +55,7 @@ failure mode, which is why they remain the only route to `confirmed`.
 ## Quick start
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/promptsentinel && cd promptsentinel
+git clone https://github.com/dusktill927-creator/promptsentinel && cd promptsentinel
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 

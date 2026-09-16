@@ -46,11 +46,9 @@ dev = [
 [project.scripts]
 promptsentinel = "promptsentinel.cli.main:app"
 
-# Add once the repository has a home. Left out rather than filled with a guess:
-# wrong metadata ships to anyone who installs the package.
-# [project.urls]
-# Homepage = "https://github.com/YOUR-USERNAME/promptsentinel"
-# Issues = "https://github.com/YOUR-USERNAME/promptsentinel/issues"
+[project.urls]
+Homepage = "https://github.com/dusktill927-creator/promptsentinel"
+Issues = "https://github.com/dusktill927-creator/promptsentinel/issues"
 
 # Out-of-tree probe packages register themselves here; the engine discovers them
 # without any change to its own code. See docs/ARCHITECTURE.md.

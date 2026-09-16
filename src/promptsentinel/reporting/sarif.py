@@ -42,7 +42,7 @@ from promptsentinel.probes.registry import REGISTRY, ProbeRegistry
 
 SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 SARIF_VERSION = "2.1.0"
-INFORMATION_URI = "https://github.com/YOUR-USERNAME/promptsentinel"
+INFORMATION_URI = "https://github.com/dusktill927-creator/promptsentinel"
 """Published in every SARIF run as ``informationUri`` and in each rule's ``helpUri``.
 
 It leaves the tool inside uploaded artifacts, so it is a placeholder until the
