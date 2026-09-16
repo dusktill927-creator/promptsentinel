@@ -17,7 +17,7 @@ Built one at a time, each with the three-outcome test pattern established by
 | # | Category | Confirmation strategy |
 |---|---|---|
 | 1 | System-prompt extraction ✅ | Canary seeded in the system prompt returned verbatim |
-| 2 | Jailbreak / policy bypass | Marker token the model was told never to emit |
+| 2 | Jailbreak / policy bypass ✅ | Marker token the model was told never to emit |
 | 3 | Indirect prompt injection | Canary in a simulated retrieved document, exfiltrated |
 | 4 | PII / data leakage | Canary "customer records" surfaced to an unauthorized asker |
 | 5 | Unauthorized tool call | A disallowed tool actually invoked — structural, not textual |
@@ -29,6 +29,17 @@ plumbing already exists for it.
 
 Each category gets multiple techniques (a probe per technique, not per category),
 which is exactly what the registry is for.
+
+**Category 2 shipped** with four techniques: `roleplay_persona`,
+`hypothetical_framing`, `authority_override` and `output_obfuscation`. It contains no
+harmful payloads: the forbidden output is a random marker seeded into the operator's own
+system prompt, which tests the rules the operator actually wrote rather than the base
+model's safety training.
+
+Its one novel piece of machinery is the **baseline request**. Each probe asks plainly
+before it attacks, so "the policy was defeated" and "the policy was never enforced" are
+reported as different findings with different severities. Later categories should copy
+this: a probe that cannot tell a broken control from an absent one is not diagnostic.
 
 **Category 1 shipped** with four techniques: `direct_request`, `delimiter_injection`,
 `completion_priming` and `transformation`. It required no engine change — the four
