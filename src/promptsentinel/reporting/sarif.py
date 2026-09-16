@@ -42,7 +42,11 @@ from promptsentinel.probes.registry import REGISTRY, ProbeRegistry
 
 SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 SARIF_VERSION = "2.1.0"
-INFORMATION_URI = "https://github.com/virat/promptsentinel"
+INFORMATION_URI = "https://github.com/YOUR-USERNAME/promptsentinel"
+"""Published in every SARIF run as ``informationUri`` and in each rule's ``helpUri``.
+
+It leaves the tool inside uploaded artifacts, so it is a placeholder until the
+repository has a real home rather than a plausible-looking guess."""
 FINGERPRINT_KEY = "promptSentinelFindingV1"
 
 _SEVERITY_LEVEL = {
