@@ -173,6 +173,10 @@ argument for why the table above matters.
    without `arq` installed. It passed locally only because the development environment had
    it from earlier manual testing; CI on a clean machine caught it immediately.
 
+## Related
+
+[WRITEUP.md](WRITEUP.md) tells the story these numbers come from.
+
 ## How to extend this document
 
 If you run a scan against a real target, add it to the first table with the model, the
