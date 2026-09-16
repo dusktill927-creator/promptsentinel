@@ -68,6 +68,23 @@ uvicorn promptsentinel.api.app:app --reload
 
 Interactive docs: <http://127.0.0.1:8000/docs>
 
+### Try it in 30 seconds, no API key
+
+`examples/vulnerable_app.py` is a deliberately vulnerable application, shaped nothing like
+an OpenAI endpoint. Run it and scan it:
+
+```bash
+uvicorn examples.vulnerable_app:app --port 8500 &
+promptsentinel scan -t examples/vulnerable_app_target.json --attested-by you@example.com
+```
+
+```
+12 confirmed, 4 suspicious, 3 informational
+25 probes run, 0 errored, 0 skipped
+```
+
+Every weakness in that app is on purpose. **Do not deploy it.**
+
 ### Or use the CLI
 
 ```bash

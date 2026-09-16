@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
 
 from promptsentinel import __version__
 from promptsentinel.api.security import generate_key
@@ -48,9 +49,9 @@ from promptsentinel.reporting.diff import render_text as diff_text
 from promptsentinel.targets.factory import build_target
 from promptsentinel.targets.rate_limit import RateLimit
 from promptsentinel.targets.spec import (
-    MockTargetSpec,
     OpenAICompatibleTargetSpec,
     TargetSpec,
+    parse_spec,
 )
 
 app = typer.Typer(
@@ -124,16 +125,18 @@ def _load_target(
         if not isinstance(raw, dict):
             raise typer.BadParameter("target file must contain a JSON object")
 
-        kind = raw.get("kind", "openai_compatible")
-        if kind == "mock":
+        raw.setdefault("kind", "openai_compatible")
+        if raw["kind"] == "mock":
             if key is not None:
                 raise typer.BadParameter("--api-key-env is meaningless for a mock target")
-            return MockTargetSpec.model_validate(raw)
-        if key is not None:
+        elif key is not None:
             # The flag wins over anything in the file: the whole point is that the
             # credential lives in the environment rather than on disk.
             raw = {**raw, "api_key": key}
-        return OpenAICompatibleTargetSpec.model_validate(raw)
+        try:
+            return parse_spec(raw)
+        except ValidationError as exc:
+            raise typer.BadParameter(f"invalid target spec: {exc}") from exc
 
     if not base_url or not model:
         raise typer.BadParameter("supply --target FILE, or both --base-url and --model")

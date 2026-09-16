@@ -12,6 +12,7 @@ the README so it can be blunt.
 |---|---|---|
 | All 26 probes | `openai/gpt-oss-120b` via Groq | 10 confirmed, 0 suspicious, 0 errored |
 | OpenAI-compatible adapter | Groq, Google Gemini | Request/response handling, tool-call parsing |
+| Generic HTTP adapter | A bespoke demo app over a real socket | All 25 probes ran; 12 confirmed, 0 skipped, 0 errored |
 | Migrations, ORM, cascades | PostgreSQL 18 | Schema matches models; FK cascades enforced |
 | Distributed queue and secret store | Redis 7 | API and worker in separate processes |
 
@@ -79,19 +80,47 @@ verified there is adapter-level only:
 
 No probe verdicts came from Gemini.
 
-## Not verified against any real system
+### The HTTP adapter against a real server
 
-Every probe has now run against a model. These components have not.
+`examples/vulnerable_app.py` is a deliberately vulnerable application shaped nothing like
+an OpenAI endpoint: it takes `{"question", "system", "context", "tenant"}` and answers
+`{"data": {"answer", "actions"}}`. Run as a real uvicorn process and scanned over a real
+socket, **all 25 default probes completed — 12 confirmed, 4 suspicious, 3 informational,
+0 skipped, 0 errored**, across four categories.
+
+Be precise about what that establishes. The application is real; the *model* behind it is
+scripted. This verifies the adapter and the probe plumbing against a genuinely non-OpenAI
+request/response shape — request templating, JSON-path extraction, tool-call parsing, the
+document channel, error handling over a socket. It says nothing about model behaviour,
+which is verified separately above.
+
+Doing it found two bugs that every test had missed:
+
+- **The CLI could not load an `http` target at all.** `_load_target` dispatched on `kind`
+  by hand and fell through to the OpenAI-compatible class for anything else, so an entire
+  adapter was unreachable from the command line.
+- **`HttpTargetSpec` had no `tools` field.** It advertised `TOOL_CALLING` from
+  `tool_calls_path` alone while `declared_tools` stayed empty, so every excessive-agency
+  probe skipped with "no tools are declared restricted" — permanently and invisibly.
+
+### What the suspicious tier did here
+
+Four `suspicious` findings, all `jailbreak.*` "refusal behaviour degraded". The demo app
+refuses the baseline request (its scripted matcher catches the word "configuration") and
+then returns its generic greeting to the reframed ones, which contains no refusal
+phrasing. The probes reported exactly that, and correctly did **not** confirm anything.
+
+Whether those four are false positives is arguable — the application did stop refusing —
+but a human triaging this report would likely treat them as noise. That is the clearest
+look so far at the weakness described below, and it is one data point, not a rate.
+
+## Not verified against any real system
 
 | Component | Status |
 |---|---|
-| Generic HTTP adapter | Fake transport only — never pointed at a real bespoke application |
+| Model behaviour behind a bespoke HTTP app | The demo app's responses are scripted, not generated |
 | Scan diffing | Exercised on real scan outputs, but those came from mock targets |
 | Anthropic / other providers | Only OpenAI-compatible endpoints have been used |
-
-The HTTP adapter is the notable one: it is the component that decides whether this tool
-can test applications that are not OpenAI-shaped, and that claim rests entirely on tests
-against a fake transport.
 
 ## Where false positives are possible
 

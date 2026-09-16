@@ -507,3 +507,56 @@ class TestDiffCommand:
         before, _ = reports
         result = runner.invoke(app, ["diff", before, str(tmp_path / "nope.json")])
         assert result.exit_code == EXIT_ERROR
+
+
+class TestNonOpenAiTargetFiles:
+    """Regression: the CLI could not load an `http` target at all.
+
+    _load_target dispatched on `kind` by hand and fell through to the OpenAI-compatible
+    class for anything it did not recognise, so a whole adapter was unreachable from the
+    command line. It now routes through the discriminated union, which means a new
+    target kind works everywhere the moment it joins TargetSpec.
+    """
+
+    def test_an_http_target_file_loads(self, target_file):
+        from pathlib import Path
+
+        from promptsentinel.cli.main import _load_target
+        from promptsentinel.targets.spec import HttpTargetSpec
+
+        path = target_file(
+            {
+                "kind": "http",
+                "url": "https://app.internal/api/chat",
+                "request_template": {"question": "{{prompt}}"},
+                "response_path": "data.answer",
+                "tool_calls_path": "data.actions",
+                "tool_name_field": "tool",
+                "tool_arguments_field": "params",
+            }
+        )
+        spec = _load_target(Path(path), None, None, None, None)
+        assert isinstance(spec, HttpTargetSpec)
+        assert spec.tool_name_field == "tool"
+
+    def test_the_api_key_flag_applies_to_an_http_target(self, target_file, monkeypatch):
+        from pathlib import Path
+
+        from promptsentinel.cli.main import _load_target
+
+        monkeypatch.setenv("PS_HTTP_KEY", "k-123")
+        path = target_file(
+            {
+                "kind": "http",
+                "url": "https://app.internal/api/chat",
+                "request_template": {"question": "{{prompt}}"},
+                "response_path": "data.answer",
+            }
+        )
+        spec = _load_target(Path(path), None, None, "PS_HTTP_KEY", None)
+        assert spec.api_key.get_secret_value() == "k-123"
+
+    def test_an_unknown_kind_is_rejected_clearly(self, target_file):
+        result = scan(target_file({"kind": "telepathy"}))
+        assert result.exit_code == EXIT_ERROR
+        assert "invalid target spec" in result.output

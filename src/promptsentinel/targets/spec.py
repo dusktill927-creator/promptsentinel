@@ -119,6 +119,14 @@ class HttpTargetSpec(BaseModel):
         description="Dotted path to the reply text, e.g. 'data.answer' or 'choices.0.text'.",
         examples=["data.answer"],
     )
+    tools: list[ToolDefinition] = Field(
+        default_factory=list,
+        description=(
+            "Tools your application exposes, each marked restricted or not. Needed "
+            "alongside tool_calls_path for excessive-agency probes: one says what to "
+            "offer, the other says where to read the answer."
+        ),
+    )
     tool_calls_path: str | None = Field(
         default=None, description="Dotted path to a list of tool calls, if the app returns them."
     )
@@ -318,3 +326,16 @@ def _reveal(value: object) -> object:
 
 
 _SPEC_ADAPTER: TypeAdapter[TargetSpec] = TypeAdapter(TargetSpec)
+
+
+def parse_spec(data: object) -> TargetSpec:
+    """Validate raw data as any supported target kind.
+
+    Callers must go through this rather than picking a spec class by hand. An earlier
+    version of the CLI dispatched on ``kind`` itself, fell through to the
+    OpenAI-compatible class for anything it did not recognise, and so could not load an
+    ``http`` target at all -- a whole adapter unreachable from the command line because
+    one function had not been told it existed. Routing through the discriminated union
+    means a new target kind works everywhere the moment it joins :data:`TargetSpec`.
+    """
+    return _SPEC_ADAPTER.validate_python(data)

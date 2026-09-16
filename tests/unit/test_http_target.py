@@ -22,6 +22,11 @@ from promptsentinel.targets.spec import HttpTargetSpec
 ASK = [ChatMessage.system("You are ACME support."), ChatMessage.user("where is my order?")]
 
 # A deliberately un-OpenAI-shaped application.
+TOOLS = [
+    {"name": "lookup_order", "description": "Look up an order"},
+    {"name": "issue_refund", "description": "Issue a refund", "restricted": True},
+]
+
 BESPOKE = {
     "kind": "http",
     "url": "https://app.internal/api/chat",
@@ -183,9 +188,15 @@ class TestCapabilitiesFollowTheTemplate:
             TargetCapability.DOCUMENT_INJECTION
         )
 
-    def test_a_tool_path_enables_tool_calling(self):
-        spec = {**BESPOKE, "tool_calls_path": "actions"}
-        assert HttpTarget(HttpTargetSpec.model_validate(spec)).supports(
+    def test_tool_calling_needs_both_a_path_and_declarations(self):
+        """A path alone says where the answer appears but offers nothing to call."""
+        path_only = {**BESPOKE, "tool_calls_path": "actions"}
+        assert not HttpTarget(HttpTargetSpec.model_validate(path_only)).supports(
+            TargetCapability.TOOL_CALLING
+        )
+
+        complete = {**BESPOKE, "tool_calls_path": "actions", "tools": TOOLS}
+        assert HttpTarget(HttpTargetSpec.model_validate(complete)).supports(
             TargetCapability.TOOL_CALLING
         )
 
@@ -238,3 +249,44 @@ class TestDig:
     )
     def test_paths(self, payload, path, expected):
         assert dig(payload, path) == expected
+
+
+class TestToolDeclarations:
+    """Both halves are needed, and neither alone is sufficient.
+
+    Regression: the spec had no `tools` field at all, so an HTTP target advertised
+    TOOL_CALLING from `tool_calls_path` alone while `declared_tools` stayed empty --
+    every excessive-agency probe skipped with "no tools are declared restricted",
+    permanently and invisibly. Found by scanning a real bespoke app, not by a test.
+    """
+
+    def test_declarations_alone_do_not_enable_tool_calling(self):
+        """Nowhere to read the answer from."""
+        spec = HttpTargetSpec.model_validate({**BESPOKE, "tools": TOOLS})
+        assert not HttpTarget(spec).supports(TargetCapability.TOOL_CALLING)
+
+    def test_a_path_alone_does_not_enable_tool_calling(self):
+        """Nothing to offer the application."""
+        spec = HttpTargetSpec.model_validate({**BESPOKE, "tool_calls_path": "actions"})
+        assert not HttpTarget(spec).supports(TargetCapability.TOOL_CALLING)
+
+    def test_both_together_enable_it(self):
+        spec = HttpTargetSpec.model_validate(
+            {**BESPOKE, "tools": TOOLS, "tool_calls_path": "actions"}
+        )
+        assert HttpTarget(spec).supports(TargetCapability.TOOL_CALLING)
+
+    def test_declared_tools_are_exposed_to_probes(self):
+        spec = HttpTargetSpec.model_validate(
+            {**BESPOKE, "tools": TOOLS, "tool_calls_path": "actions"}
+        )
+        target = HttpTarget(spec)
+        assert [t.name for t in target.declared_tools if t.restricted] == ["issue_refund"]
+
+    async def test_agency_probes_run_against_a_fully_declared_http_target(self):
+        from promptsentinel.probes.builtin.excessive_agency import DirectInvocationProbe
+
+        spec = HttpTargetSpec.model_validate(
+            {**BESPOKE, "tools": TOOLS, "tool_calls_path": "actions"}
+        )
+        assert DirectInvocationProbe().applies_to(HttpTarget(spec)) is None

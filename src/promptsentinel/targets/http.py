@@ -36,6 +36,7 @@ from promptsentinel.targets.base import (
     TargetCapability,
     TargetResponse,
     ToolCall,
+    ToolDefinition,
     ToolSpec,
 )
 from promptsentinel.targets.spec import HttpTargetSpec
@@ -92,9 +93,17 @@ class HttpTarget(Target):
             extra.add(TargetCapability.SYSTEM_PROMPT_CONTROL)
         if DOCUMENTS in self._template_text:
             extra.add(TargetCapability.DOCUMENT_INJECTION)
-        if self._spec.tool_calls_path:
+        if self._spec.tool_calls_path and self._spec.tools:
+            # Both halves are required and neither is sufficient: declarations say what
+            # to offer the application, the path says where its answer appears.
+            # Advertising the capability with only one of them produces probes that run
+            # and can never observe anything.
             extra.add(TargetCapability.TOOL_CALLING)
         return self.default_capabilities | extra
+
+    @property
+    def declared_tools(self) -> Sequence[ToolDefinition]:
+        return self._spec.tools
 
     @property
     def system_prompt(self) -> str | None:
