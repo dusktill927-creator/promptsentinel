@@ -71,6 +71,28 @@ class ProbeContext:
         return self.options.get(key, default)
 
 
+@dataclass(frozen=True)
+class Attempt:
+    """One concrete request in a technique's repertoire."""
+
+    label: str
+    user: str
+    assistant_prefill: str | None = None
+
+    def messages(self, system: ChatMessage) -> list[ChatMessage]:
+        messages = [system, ChatMessage.user(self.user)]
+        if self.assistant_prefill is not None:
+            # A trailing assistant turn asks the target to *continue* rather than
+            # respond -- the mechanic the completion-priming technique relies on.
+            messages.append(ChatMessage(role="assistant", content=self.assistant_prefill))
+        return messages
+
+    def as_prompt_text(self) -> str:
+        if self.assistant_prefill is None:
+            return self.user
+        return f"{self.user}\n\n[assistant turn prefilled with] {self.assistant_prefill}"
+
+
 class Probe(abc.ABC):
     """Base class for all attack techniques.
 

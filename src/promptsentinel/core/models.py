@@ -81,6 +81,9 @@ class ProofKind(StrEnum):
     SYSTEM_PROMPT_DISCLOSURE = "system_prompt_disclosure"
     """A verbatim span of the operator-supplied system prompt was reproduced."""
 
+    POLICY_BYPASS_MARKER = "policy_bypass_marker"
+    """The target emitted content its own system prompt forbade under any framing."""
+
 
 class Proof(BaseModel):
     """Machine-verifiable evidence that an issue is real.

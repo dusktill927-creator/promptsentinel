@@ -66,14 +66,20 @@ class TestAuthorizationGate:
 
 class TestProbeSelection:
     async def test_default_selection_runs_the_real_probes(self, client):
-        """A scan with no probe list runs the enabled catalogue, not the diagnostic."""
+        """A scan with no probe list runs the enabled catalogue, not the diagnostic.
+
+        Asserted as properties rather than a fixed list, so shipping a new probe
+        category does not break a test that is about selection behaviour.
+        """
         payload = {
             "target": dict(LEAKY_MOCK_TARGET),
             "authorization": dict(VALID_AUTHORIZATION),
         }
         selected = (await client.post("/v1/scans", json=payload)).json()["probes_selected"]
-        assert all(p.startswith("system_prompt.") for p in selected)
+
         assert "diagnostic.canary_echo" not in selected
+        assert len(selected) > 1
+        assert len({p.split(".")[0] for p in selected}) > 1, "should span >1 family"
 
     async def test_a_disabled_probe_can_still_be_named_explicitly(self, client):
         response = await client.post("/v1/scans", json=body())
