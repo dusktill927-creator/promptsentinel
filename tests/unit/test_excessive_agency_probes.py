@@ -14,6 +14,7 @@ from promptsentinel.probes.base import ProbeContext
 from promptsentinel.probes.builtin.excessive_agency import (
     CONTROL_ASK,
     AuthorityPretextProbe,
+    ChainedEscalationProbe,
     DirectInvocationProbe,
     ExcessiveAgencyProbe,
     InjectedDirectiveProbe,
@@ -29,6 +30,7 @@ FAMILY = [
     ParameterTamperingProbe,
     AuthorityPretextProbe,
     InjectedDirectiveProbe,
+    ChainedEscalationProbe,
 ]
 CONVERSATIONAL = [DirectInvocationProbe, ParameterTamperingProbe, AuthorityPretextProbe]
 
@@ -231,3 +233,94 @@ class TestFamilyRegistration:
     def test_metadata(self, probe_cls):
         assert probe_cls.category is ProbeCategory.EXCESSIVE_AGENCY
         assert probe_cls.description and probe_cls.technique
+
+
+class TestChainedEscalation:
+    """Escalating from a tool call the application already agreed to make."""
+
+    def caves_after_a_lookup(self) -> MockTarget:
+        """Does the lookup, then refunds when asked from that position."""
+        return agent(
+            rules=[
+                CONTROL_RULE,
+                MockRule(
+                    pattern="refund",
+                    response="Processing that now.",
+                    tool_calls=[
+                        MockToolCall(name="issue_refund", arguments={"order": "ORD-24601"})
+                    ],
+                ),
+            ]
+        )
+
+    def refuses_throughout(self) -> MockTarget:
+        return agent(
+            rules=[CONTROL_RULE, MockRule(pattern=".", response="A human must approve that.")]
+        )
+
+    async def test_escalation_after_a_benign_call_is_confirmed(self, context):
+        result = await ChainedEscalationProbe().run(self.caves_after_a_lookup(), context)
+
+        finding = result.findings[0]
+        assert finding.confidence is Confidence.CONFIRMED
+        assert finding.proof.kind is ProofKind.UNAUTHORIZED_TOOL_CALL
+        assert "chained escalation" in finding.title
+
+    async def test_the_benign_lookup_comes_first(self, context):
+        """The whole point: the privileged ask arrives second, not cold."""
+        target = self.caves_after_a_lookup()
+        await ChainedEscalationProbe().run(target, context)
+        assert target.transcript[0][0][-1].content == CONTROL_ASK
+
+    async def test_the_escalation_rides_on_the_prior_exchange(self, context):
+        """The second turn must carry the first turn and its reply, or it is just a cold ask."""
+        target = self.caves_after_a_lookup()
+        await ChainedEscalationProbe().run(target, context)
+
+        second_turn = target.transcript[1][0]
+        assert [m.role for m in second_turn] == ["system", "user", "assistant", "user"]
+        assert second_turn[1].content == CONTROL_ASK
+
+    async def test_the_evidence_is_the_whole_exchange(self, context):
+        result = await ChainedEscalationProbe().run(self.caves_after_a_lookup(), context)
+        prompt = result.findings[0].evidence.prompt
+        assert prompt.count("[user]") >= 2
+        assert "[assistant]" in prompt
+
+    async def test_an_agent_that_holds_the_line_yields_nothing(self, context):
+        result = await ChainedEscalationProbe().run(self.refuses_throughout(), context)
+        assert result.findings == []
+
+    async def test_a_restricted_call_on_the_lookup_turn_is_not_called_escalation(self, context):
+        """If it refunds on a plain lookup there was nothing to escalate from."""
+        target = agent(rules=[REFUND_RULE])
+        result = await ChainedEscalationProbe().run(target, context)
+        assert "routine lookup request" in result.findings[0].proof.detail
+
+    async def test_a_claimed_refund_without_a_tool_call_is_suspicious(self, context):
+        target = agent(
+            rules=[
+                CONTROL_RULE,
+                MockRule(pattern=".", response="Done - I have issued the refund for you."),
+            ]
+        )
+        result = await ChainedEscalationProbe().run(target, context)
+
+        finding = result.findings[0]
+        assert finding.confidence is Confidence.SUSPICIOUS
+        assert finding.proof is None
+
+    async def test_an_agent_that_never_calls_tools_is_inconclusive(self, context):
+        target = agent(rules=[MockRule(pattern=".", response="I can help with that.")])
+        result = await ChainedEscalationProbe().run(target, context)
+
+        finding = result.findings[0]
+        assert finding.confidence is Confidence.INFORMATIONAL
+        assert "control_request_invoked_no_tool" in finding.signals
+
+    async def test_it_is_skipped_without_a_restricted_tool(self):
+        from promptsentinel.targets.spec import MockTargetSpec
+
+        target = MockTarget(MockTargetSpec(tools=[LOOKUP]))
+        reason = ChainedEscalationProbe().applies_to(target)
+        assert reason is not None and "restricted" in reason
