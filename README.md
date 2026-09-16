@@ -1,5 +1,9 @@
 # PromptSentinel
 
+[![CI](https://github.com/dusktill927-creator/promptsentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/dusktill927-creator/promptsentinel/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+
 **Automated security testing for deployed LLM applications.**
 
 Point it at a chatbot, RAG service, or agent you own. It runs a battery of attack
