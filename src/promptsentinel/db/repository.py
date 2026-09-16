@@ -115,6 +115,7 @@ class ScanRepository:
                     duration_ms=result.duration_ms,
                     error=result.error,
                     detail=result.detail,
+                    last_response=result.last_response,
                 )
             )
             for finding in result.findings:
@@ -172,6 +173,7 @@ def probe_result_from_row(row: ProbeRunRow, findings: Sequence[Finding]) -> Prob
         duration_ms=row.duration_ms,
         error=row.error,
         detail=row.detail,
+        last_response=row.last_response,
     )
 
 

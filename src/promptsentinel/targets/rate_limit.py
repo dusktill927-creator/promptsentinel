@@ -24,11 +24,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from promptsentinel.core.budget import extend_deadline
 from promptsentinel.targets.base import (
     ChatMessage,
+    DelegatingTarget,
     Document,
     Target,
-    TargetCapability,
     TargetResponse,
-    ToolDefinition,
     ToolSpec,
 )
 
@@ -101,39 +100,15 @@ class TokenBucket:
             await self._sleep(wait)
 
 
-class RateLimitedTarget(Target):
-    """Paces every request to the wrapped target.
-
-    Delegation is written out rather than done with ``__getattr__`` so that a new
-    member of the :class:`Target` interface fails type checking here instead of
-    silently bypassing the limiter at runtime.
-    """
+class RateLimitedTarget(DelegatingTarget):
+    """Paces every request to the wrapped target."""
 
     kind: ClassVar[str] = "rate_limited"
 
     def __init__(self, inner: Target, limit: RateLimit, **bucket_kwargs: object):
-        self._inner = inner
+        super().__init__(inner)
         self._bucket = TokenBucket(limit, **bucket_kwargs)  # type: ignore[arg-type]
         self.requests_made = 0
-
-    @property
-    def inner(self) -> Target:
-        return self._inner
-
-    @property
-    def capabilities(self) -> frozenset[TargetCapability]:
-        return self._inner.capabilities
-
-    @property
-    def declared_tools(self) -> Sequence[ToolDefinition]:
-        return self._inner.declared_tools
-
-    @property
-    def system_prompt(self) -> str | None:
-        return self._inner.system_prompt
-
-    def describe(self) -> str:
-        return self._inner.describe()
 
     async def send(
         self,
@@ -144,7 +119,4 @@ class RateLimitedTarget(Target):
     ) -> TargetResponse:
         await self._bucket.acquire()
         self.requests_made += 1
-        return await self._inner.send(messages, tools=tools, documents=documents)
-
-    async def aclose(self) -> None:
-        await self._inner.aclose()
+        return await super().send(messages, tools=tools, documents=documents)

@@ -269,6 +269,14 @@ class ProbeResult(BaseModel):
     duration_ms: int = 0
     error: str | None = None
     detail: str | None = Field(default=None, description="Why a probe was skipped.")
+    last_response: str | None = Field(
+        default=None,
+        description=(
+            "The final thing the target said, recorded even when nothing was found. "
+            "Without it a clean result is unauditable: a reader cannot tell a genuine "
+            "refusal from a response the heuristics simply did not recognise."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_status_invariant(self) -> Self:
@@ -279,12 +287,20 @@ class ProbeResult(BaseModel):
         return self
 
     @classmethod
-    def completed(cls, probe_id: str, findings: list[Finding], *, attempts: int = 0) -> ProbeResult:
+    def completed(
+        cls,
+        probe_id: str,
+        findings: list[Finding],
+        *,
+        attempts: int = 0,
+        last_response: str | None = None,
+    ) -> ProbeResult:
         return cls(
             probe_id=probe_id,
             status=ProbeStatus.COMPLETED,
             findings=findings,
             attempts=attempts,
+            last_response=last_response,
         )
 
     @classmethod

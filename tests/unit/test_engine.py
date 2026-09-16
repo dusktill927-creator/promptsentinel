@@ -11,7 +11,7 @@ from promptsentinel.core.errors import AuthorizationError, TargetError
 from promptsentinel.core.models import ProbeCategory, ProbeResult, ProbeStatus
 from promptsentinel.engine.runner import ScanEngine, ScanPlan
 from promptsentinel.probes.base import Probe, ProbeContext
-from promptsentinel.targets.base import Target, TargetCapability
+from promptsentinel.targets.base import ChatMessage, Target, TargetCapability
 from promptsentinel.targets.mock import MockTarget
 from promptsentinel.targets.spec import MockTargetSpec
 
@@ -177,3 +177,70 @@ class TestBookkeeping:
         engine = ScanEngine(max_concurrent_probes=2)
         await engine.run(plan(*[CountingProbe] * 6), target)
         assert peak <= 2
+
+
+class TalkingProbe(Probe):
+    """Actually contacts the target. GoodProbe deliberately does not."""
+
+    id = "test.talking"
+    name = "Talking"
+    category = ProbeCategory.DIAGNOSTIC
+    description = "Sends one message."
+
+    async def run(self, target: Target, context: ProbeContext) -> ProbeResult:
+        await target.send([ChatMessage.user("hello")])
+        return ProbeResult.completed(self.id, [], attempts=1)
+
+
+class TestResponseRecording:
+    """A clean result must carry the evidence that it is clean.
+
+    Recorded by the engine rather than by each probe: twenty-six probes is twenty-six
+    chances to forget, and a forgotten one produces an unauditable clean result with
+    nothing to flag it.
+    """
+
+    async def test_a_clean_probe_still_records_what_the_target_said(self, target):
+        speaking = MockTarget(MockTargetSpec(default_response="I can't share that."))
+        outcome = await ScanEngine().run(plan(TalkingProbe), speaking)
+        assert outcome.results[0].last_response == "I can't share that."
+
+    async def test_every_probe_gets_it_without_opting_in(self):
+        """TalkingProbe never mentions last_response; the engine supplies it."""
+        speaking = MockTarget(MockTargetSpec(default_response="hello"))
+        outcome = await ScanEngine().run(plan(TalkingProbe, TalkingProbe), speaking)
+        assert all(r.last_response == "hello" for r in outcome.results)
+
+    async def test_a_probe_that_never_spoke_records_nothing(self, target):
+        """A skipped or silent probe should not invent a response."""
+
+        class Silent(Probe):
+            id = "test.silent"
+            name = "Silent"
+            category = ProbeCategory.DIAGNOSTIC
+            description = "Sends nothing."
+
+            async def run(self, t: Target, c: ProbeContext) -> ProbeResult:
+                return ProbeResult.completed(self.id, [])
+
+        outcome = await ScanEngine().run(plan(Silent), target)
+        assert outcome.results[0].last_response is None
+
+    async def test_the_recording_is_capped(self, target):
+        from promptsentinel.engine.runner import MAX_RECORDED_RESPONSE
+
+        chatty = MockTarget(MockTargetSpec(default_response="x" * 9000))
+        outcome = await ScanEngine().run(plan(TalkingProbe), chatty)
+        recorded = outcome.results[0].last_response
+        assert recorded is not None
+        assert len(recorded) <= MAX_RECORDED_RESPONSE + 3
+
+    async def test_recording_does_not_disturb_the_probe(self, target):
+        """The wrapper must be transparent: capabilities, tools, prompt all pass through."""
+        from promptsentinel.engine.runner import _RecordingTarget
+
+        inner = MockTarget(MockTargetSpec(system_prompt="You are ACME."))
+        wrapped = _RecordingTarget(inner)
+        assert wrapped.capabilities == inner.capabilities
+        assert wrapped.system_prompt == inner.system_prompt
+        assert wrapped.describe() == inner.describe()

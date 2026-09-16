@@ -221,3 +221,49 @@ class Target(abc.ABC):
         target is tested in the configuration it actually runs in.
         """
         return None
+
+
+class DelegatingTarget(Target):
+    """Forwards everything to a wrapped target.
+
+    Behaviour is layered onto a target by composition -- pacing, recording -- and each
+    layer would otherwise repeat this forwarding. Written out member by member rather
+    than with ``__getattr__`` so that adding a method to :class:`Target` fails type
+    checking here instead of silently bypassing every wrapper at runtime.
+    """
+
+    kind: ClassVar[str] = "delegating"
+
+    def __init__(self, inner: Target):
+        self._inner = inner
+
+    @property
+    def inner(self) -> Target:
+        return self._inner
+
+    @property
+    def capabilities(self) -> frozenset[TargetCapability]:
+        return self._inner.capabilities
+
+    @property
+    def declared_tools(self) -> Sequence[ToolDefinition]:
+        return self._inner.declared_tools
+
+    @property
+    def system_prompt(self) -> str | None:
+        return self._inner.system_prompt
+
+    def describe(self) -> str:
+        return self._inner.describe()
+
+    async def send(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        tools: Sequence[ToolSpec] | None = None,
+        documents: Sequence[Document] | None = None,
+    ) -> TargetResponse:
+        return await self._inner.send(messages, tools=tools, documents=documents)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()

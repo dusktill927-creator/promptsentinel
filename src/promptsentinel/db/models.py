@@ -97,6 +97,10 @@ class ProbeRunRow(Base):
     duration_ms: Mapped[int] = mapped_column(default=0)
     error: Mapped[str | None] = mapped_column(Text, default=None)
     detail: Mapped[str | None] = mapped_column(Text, default=None)
+    last_response: Mapped[str | None] = mapped_column(Text, default=None)
+    """What the target last said, kept even for probes that found nothing.
+
+    A clean report that shows no target output is a clean report nobody can check."""
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     scan: Mapped[ScanRow] = relationship(back_populates="probe_runs")

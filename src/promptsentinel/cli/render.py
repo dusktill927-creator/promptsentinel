@@ -126,4 +126,5 @@ def _run(result: ProbeResult) -> dict[str, Any]:
         "duration_ms": result.duration_ms,
         "error": result.error,
         "detail": result.detail,
+        "last_response": result.last_response,
     }

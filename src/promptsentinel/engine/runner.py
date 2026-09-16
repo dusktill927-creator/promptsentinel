@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from promptsentinel.core.authorization import Authorization
@@ -20,9 +21,25 @@ from promptsentinel.core.canary import Canary
 from promptsentinel.core.errors import AuthorizationError, PromptSentinelError
 from promptsentinel.core.models import ProbeResult
 from promptsentinel.probes.base import Probe, ProbeContext
-from promptsentinel.targets.base import Target
+from promptsentinel.targets.base import (
+    ChatMessage,
+    DelegatingTarget,
+    Document,
+    Target,
+    TargetResponse,
+    ToolSpec,
+)
 
 logger = logging.getLogger(__name__)
+
+MAX_RECORDED_RESPONSE = 2000
+"""Cap on the recorded response. Enough to judge a clean result, not a transcript archive."""
+
+
+def _excerpt(text: str | None) -> str | None:
+    if text is None:
+        return None
+    return text if len(text) <= MAX_RECORDED_RESPONSE else text[:MAX_RECORDED_RESPONSE] + "..."
 
 
 @dataclass(frozen=True)
@@ -51,6 +68,30 @@ class ScanOutcome:
     @property
     def findings_count(self) -> int:
         return sum(len(r.findings) for r in self.results)
+
+
+class _RecordingTarget(DelegatingTarget):
+    """Remembers the last thing the target said.
+
+    Attached by the engine per probe rather than left to each probe to report, for the
+    same reason pacing is: a probe that forgets would produce a clean result nobody can
+    audit, and nothing would flag it. Twenty-six probes is twenty-six chances to forget.
+    """
+
+    def __init__(self, inner: Target):
+        super().__init__(inner)
+        self.last_response: str | None = None
+
+    async def send(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        tools: Sequence[ToolSpec] | None = None,
+        documents: Sequence[Document] | None = None,
+    ) -> TargetResponse:
+        response = await super().send(messages, tools=tools, documents=documents)
+        self.last_response = response.content
+        return response
 
 
 class ScanEngine:
@@ -108,6 +149,7 @@ class ScanEngine:
             options=dict(plan.options.get(probe.id, {})),
         )
 
+        recorder = _RecordingTarget(target)
         async with self._semaphore:
             started = time.perf_counter()
             try:
@@ -117,7 +159,7 @@ class ScanEngine:
                     # conservatively paced scan does not report timeouts that never
                     # happened.
                     with track_deadline(deadline):
-                        result = await probe.run(target, context)
+                        result = await probe.run(recorder, context)
             except TimeoutError:
                 logger.warning("scan=%s probe=%s timed out", plan.scan_id, probe.id)
                 return ProbeResult.timed_out(probe.id, self._probe_timeout_s)
@@ -131,4 +173,11 @@ class ScanEngine:
                 return ProbeResult.errored(probe.id, f"{type(exc).__name__}: {exc}")
             duration_ms = int((time.perf_counter() - started) * 1000)
 
-        return result.model_copy(update={"duration_ms": duration_ms})
+        return result.model_copy(
+            update={
+                "duration_ms": duration_ms,
+                # Recorded centrally so a clean result always carries the evidence that
+                # it is clean, whatever the probe chose to report.
+                "last_response": result.last_response or _excerpt(recorder.last_response),
+            }
+        )

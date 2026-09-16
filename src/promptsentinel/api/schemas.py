@@ -132,6 +132,9 @@ class ProbeRunOut(BaseModel):
     duration_ms: int
     error: str | None
     detail: str | None
+    last_response: str | None = Field(
+        default=None, description="What the target last said, even if nothing was found."
+    )
 
     @classmethod
     def from_row(cls, row: ProbeRunRow) -> ProbeRunOut:
@@ -142,6 +145,7 @@ class ProbeRunOut(BaseModel):
             duration_ms=row.duration_ms,
             error=row.error,
             detail=row.detail,
+            last_response=row.last_response,
         )
 
 
